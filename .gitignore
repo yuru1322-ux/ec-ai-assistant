@@ -1,0 +1,8 @@
+node_modules/
+.pnpm-store/
+.DS_Store
+.env
+google-oauth-client.json
+google-oauth-token.json
+images/
+logs/
