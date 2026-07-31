@@ -53,18 +53,15 @@ async function processProduct({ browser, sheets, product }) {
       downloadedImagePaths: imagePaths
     });
 
+    const finalStatus = getCompletionStatus(scraped);
     await writeResult(sheets, product.rowNumber, {
-      title: [generated.title, ...(generated.titleCandidates || [])]
-        .filter(Boolean)
-        .filter((value, index, values) => values.indexOf(value) === index)
-        .join('\n'),
+      title: productName,
       description: [generated.description, generated.productDetails].filter(Boolean).join('\n\n'),
-      imagePrompt: generated.imagePrompt,
       imagePaths,
-      status: Status.SUCCESS
+      status: finalStatus
     });
 
-    await updateStatus(sheets, product.rowNumber, Status.COMPLETE);
+    await updateStatus(sheets, product.rowNumber, finalStatus);
     console.log(`完了: ${product.rowNumber}行目 ${product.url}`);
   } catch (error) {
     await updateStatus(sheets, product.rowNumber, Status.ERROR_OCCURRED).catch(() => {});
@@ -72,7 +69,6 @@ async function processProduct({ browser, sheets, product }) {
     await writeResult(sheets, product.rowNumber, {
       title: '',
       description: '',
-      imagePrompt: '',
       imagePaths: [],
       status: `${Status.ERROR}: ${logPath}`
     });
@@ -81,6 +77,44 @@ async function processProduct({ browser, sheets, product }) {
   } finally {
     await page.close();
   }
+}
+
+function hasValue(value) {
+  if (Array.isArray(value)) return value.length > 0;
+  return value !== undefined && value !== null && String(value).trim() !== '';
+}
+
+function getCompletionStatus(scraped) {
+  const checks = [
+    ['商品名取得失敗', scraped.name],
+    ['商品説明取得失敗', scraped.description],
+    ['Features取得失敗', scraped.features],
+    ['素材取得失敗', scraped.composition || scraped.material],
+    ['カラー取得失敗', scraped.color],
+    ['価格取得失敗', scraped.price],
+    ['商品コード取得失敗', scraped.productCode || scraped.sku || scraped.mpn]
+  ];
+  const missing = checks
+    .filter(([, value]) => !hasValue(value))
+    .map(([message]) => message);
+
+  if (missing.length > 0) {
+    return `要確認：${missing.join('、')}`;
+  }
+  if (!hasUsableDimensions(scraped)) {
+    return '完了（サイズ情報なし）';
+  }
+  return Status.COMPLETE;
+}
+
+function hasUsableDimensions(scraped) {
+  if (!hasValue(scraped.dimensions)) return false;
+  const dimensions = String(scraped.dimensions).trim();
+  const category = String(scraped.category || '').toLowerCase();
+  if (/^size\s+[a-z0-9]+$/i.test(dimensions) && /clothing|apparel|coats|jackets|dress|shirt|trouser|skirt/.test(category)) {
+    return false;
+  }
+  return true;
 }
 
 main().catch(async (error) => {

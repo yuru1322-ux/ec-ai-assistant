@@ -1,6 +1,6 @@
 # BUYMA商品作成ツール
 
-Googleスプレッドシートの商品URLとブランド名を読み込み、Playwrightで商品情報と画像を取得し、OpenAI Responses APIでBUYMA向けの商品タイトル5案・商品コメント・製品詳細・トップ画像生成用プロンプトを生成して、スプレッドシートへ書き戻すNode.jsツールです。
+Googleスプレッドシートの商品URLとブランド名を読み込み、Playwrightで商品情報と画像を取得し、OpenAI Responses APIでBUYMA向けの商品タイトル・商品コメント・製品詳細を生成して、スプレッドシートへ書き戻すNode.jsツールです。
 
 ## ディレクトリ構成
 
@@ -72,11 +72,12 @@ GOOGLE_APPLICATION_CREDENTIALS=./google-service-account.json
 
 書き戻し列は以下です。
 
-- C列: 商品タイトル5案
-- D列: 商品コメント・製品詳細
-- E列: 画像生成プロンプト
-- F列: 保存画像ファイルパス
-- G列: ステータス
+- D列: 商品名
+- E列: 商品説明・製品詳細
+- G列: 保存画像ファイルパス
+- H列: ステータス
+
+F列の画像プロンプト欄とI列の備考欄は更新しません。
 
 ## OpenAI API設定方法
 

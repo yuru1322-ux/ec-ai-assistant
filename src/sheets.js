@@ -6,11 +6,10 @@ const { columnToLetter } = require('./utils');
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
 
 const OUTPUT_COLUMNS = {
-  title: 3,
-  description: 4,
-  imagePrompt: 5,
-  imagePaths: 6,
-  status: 7
+  title: 4,
+  description: 5,
+  imagePaths: 7,
+  status: 8
 };
 
 async function getSheetsClient() {
@@ -53,7 +52,7 @@ function getOAuthClient() {
 
 async function readProducts(sheets) {
   const endRow = config.google.endRow || '';
-  const range = `${config.google.sheetName}!A${config.google.startRow}:G${endRow}`;
+  const range = `${config.google.sheetName}!A${config.google.startRow}:H${endRow}`;
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: config.google.sheetId,
     range
@@ -64,9 +63,9 @@ async function readProducts(sheets) {
       rowNumber: config.google.startRow + index,
       url: row[0] || '',
       brand: row[1] || '',
-      status: row[6] || ''
+      status: row[7] || ''
     }))
-    .filter((product) => product.url && product.status !== '完了');
+    .filter((product) => product.url && !product.status.startsWith('完了'));
 }
 
 async function updateStatus(sheets, rowNumber, status) {
@@ -80,18 +79,30 @@ async function updateStatus(sheets, rowNumber, status) {
 }
 
 async function writeResult(sheets, rowNumber, result) {
-  await sheets.spreadsheets.values.update({
+  const updates = [
+    {
+      range: `${config.google.sheetName}!${columnToLetter(OUTPUT_COLUMNS.title)}${rowNumber}`,
+      values: [[result.title || '']]
+    },
+    {
+      range: `${config.google.sheetName}!${columnToLetter(OUTPUT_COLUMNS.description)}${rowNumber}`,
+      values: [[result.description || '']]
+    },
+    {
+      range: `${config.google.sheetName}!${columnToLetter(OUTPUT_COLUMNS.imagePaths)}${rowNumber}`,
+      values: [[(result.imagePaths || []).join('\n')]]
+    },
+    {
+      range: `${config.google.sheetName}!${columnToLetter(OUTPUT_COLUMNS.status)}${rowNumber}`,
+      values: [[result.status || '']]
+    }
+  ];
+
+  await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId: config.google.sheetId,
-    range: `${config.google.sheetName}!C${rowNumber}:G${rowNumber}`,
-    valueInputOption: 'USER_ENTERED',
     requestBody: {
-      values: [[
-        result.title || '',
-        result.description || '',
-        result.imagePrompt || '',
-        (result.imagePaths || []).join('\n'),
-        result.status || ''
-      ]]
+      valueInputOption: 'USER_ENTERED',
+      data: updates
     }
   });
 }
