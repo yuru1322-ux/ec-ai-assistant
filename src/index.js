@@ -1,3 +1,4 @@
+const path = require('path');
 const { chromium } = require('playwright');
 const config = require('./config');
 const Status = require('./status');
@@ -41,6 +42,7 @@ async function processProduct({ browser, sheets, product }) {
     const brand = scraped.brand || product.brand;
     const productName = scraped.name || '商品名未取得';
     const imagePaths = await downloadImages(page, scraped.imageSources || scraped.imageUrls || [], brand, productName, product.rowNumber);
+    const imageFileNames = getImageFileNames(imagePaths);
 
     const generated = await generateBuymaContent({
       sourceUrl: product.url,
@@ -55,9 +57,10 @@ async function processProduct({ browser, sheets, product }) {
 
     const finalStatus = getCompletionStatus(scraped);
     await writeResult(sheets, product.rowNumber, {
+      cost: formatCost(scraped),
       title: productName,
       description: [generated.description, generated.productDetails].filter(Boolean).join('\n\n'),
-      imagePaths,
+      imageFileNames,
       status: finalStatus
     });
 
@@ -67,9 +70,10 @@ async function processProduct({ browser, sheets, product }) {
     await updateStatus(sheets, product.rowNumber, Status.ERROR_OCCURRED).catch(() => {});
     const logPath = await writeErrorLog(product.rowNumber, product.url, error);
     await writeResult(sheets, product.rowNumber, {
+      cost: '',
       title: '',
       description: '',
-      imagePaths: [],
+      imageFileNames: [],
       status: `${Status.ERROR}: ${logPath}`
     });
     await updateStatus(sheets, product.rowNumber, Status.ERROR);
@@ -82,6 +86,19 @@ async function processProduct({ browser, sheets, product }) {
 function hasValue(value) {
   if (Array.isArray(value)) return value.length > 0;
   return value !== undefined && value !== null && String(value).trim() !== '';
+}
+
+function formatCost(scraped) {
+  if (!hasValue(scraped.price)) return '';
+  const price = Number(scraped.price);
+  return Number.isFinite(price) ? price : '';
+}
+
+function getImageFileNames(imagePaths) {
+  return (imagePaths || [])
+    .map((imagePath) => path.basename(imagePath))
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
 }
 
 function getCompletionStatus(scraped) {

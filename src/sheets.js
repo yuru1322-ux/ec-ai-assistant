@@ -6,9 +6,10 @@ const { columnToLetter } = require('./utils');
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
 
 const OUTPUT_COLUMNS = {
-  title: 4,
-  description: 5,
-  imagePaths: 7,
+  cost: 4,
+  title: 5,
+  description: 6,
+  imageFileNames: 7,
   status: 8
 };
 
@@ -81,6 +82,10 @@ async function updateStatus(sheets, rowNumber, status) {
 async function writeResult(sheets, rowNumber, result) {
   const updates = [
     {
+      range: `${config.google.sheetName}!${columnToLetter(OUTPUT_COLUMNS.cost)}${rowNumber}`,
+      values: [[result.cost || '']]
+    },
+    {
       range: `${config.google.sheetName}!${columnToLetter(OUTPUT_COLUMNS.title)}${rowNumber}`,
       values: [[result.title || '']]
     },
@@ -89,8 +94,8 @@ async function writeResult(sheets, rowNumber, result) {
       values: [[result.description || '']]
     },
     {
-      range: `${config.google.sheetName}!${columnToLetter(OUTPUT_COLUMNS.imagePaths)}${rowNumber}`,
-      values: [[(result.imagePaths || []).join('\n')]]
+      range: `${config.google.sheetName}!${columnToLetter(OUTPUT_COLUMNS.imageFileNames)}${rowNumber}`,
+      values: [[(result.imageFileNames || []).join('\n')]]
     },
     {
       range: `${config.google.sheetName}!${columnToLetter(OUTPUT_COLUMNS.status)}${rowNumber}`,
