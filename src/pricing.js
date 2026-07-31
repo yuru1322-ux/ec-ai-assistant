@@ -95,6 +95,7 @@ const SHOP_DOMAINS = {
   'yoox.com': 'YOOX',
   'zalando.co.uk': 'ZALANDO',
   'zalando.com': 'ZALANDO',
+  'zalando.ie': 'ZALANDO',
   'zoofashions.com': 'ZOO FASHIONS',
   'hbx.com': 'HBX',
   'printemps.com': 'PRINTEMPS',
