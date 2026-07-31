@@ -10,8 +10,17 @@ const OUTPUT_COLUMNS = {
   title: 5,
   description: 6,
   imageFileNames: 7,
-  status: 8
+  status: 8,
+  category: 9,
+  costWithShopShipping: 10,
+  internationalShipping: 11,
+  listingPrice: 12,
+  profitRate: 13
 };
+
+function cellValue(value) {
+  return value === undefined || value === null ? '' : value;
+}
 
 async function getSheetsClient() {
   let auth;
@@ -53,7 +62,7 @@ function getOAuthClient() {
 
 async function readProducts(sheets) {
   const endRow = config.google.endRow || '';
-  const range = `${config.google.sheetName}!A${config.google.startRow}:H${endRow}`;
+  const range = `${config.google.sheetName}!A${config.google.startRow}:M${endRow}`;
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: config.google.sheetId,
     range
@@ -64,9 +73,25 @@ async function readProducts(sheets) {
       rowNumber: config.google.startRow + index,
       url: row[0] || '',
       brand: row[1] || '',
+      note: row[2] || '',
       status: row[7] || ''
     }))
     .filter((product) => product.url && !product.status.startsWith('完了'));
+}
+
+async function readSettings(sheets) {
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: config.google.sheetId,
+    range: '設定!A:B'
+  });
+
+  return (response.data.values || []).reduce((settings, row) => {
+    const key = String(row[0] || '').trim();
+    if (key === '設定名') return settings;
+    if (!key) return settings;
+    settings[key] = row[1] === undefined ? '' : row[1];
+    return settings;
+  }, {});
 }
 
 async function updateStatus(sheets, rowNumber, status) {
@@ -83,7 +108,7 @@ async function writeResult(sheets, rowNumber, result) {
   const updates = [
     {
       range: `${config.google.sheetName}!${columnToLetter(OUTPUT_COLUMNS.cost)}${rowNumber}`,
-      values: [[result.cost || '']]
+      values: [[cellValue(result.cost)]]
     },
     {
       range: `${config.google.sheetName}!${columnToLetter(OUTPUT_COLUMNS.title)}${rowNumber}`,
@@ -100,6 +125,26 @@ async function writeResult(sheets, rowNumber, result) {
     {
       range: `${config.google.sheetName}!${columnToLetter(OUTPUT_COLUMNS.status)}${rowNumber}`,
       values: [[result.status || '']]
+    },
+    {
+      range: `${config.google.sheetName}!${columnToLetter(OUTPUT_COLUMNS.category)}${rowNumber}`,
+      values: [[result.category || '']]
+    },
+    {
+      range: `${config.google.sheetName}!${columnToLetter(OUTPUT_COLUMNS.costWithShopShipping)}${rowNumber}`,
+      values: [[cellValue(result.costWithShopShipping)]]
+    },
+    {
+      range: `${config.google.sheetName}!${columnToLetter(OUTPUT_COLUMNS.internationalShipping)}${rowNumber}`,
+      values: [[cellValue(result.internationalShipping)]]
+    },
+    {
+      range: `${config.google.sheetName}!${columnToLetter(OUTPUT_COLUMNS.listingPrice)}${rowNumber}`,
+      values: [[cellValue(result.listingPrice)]]
+    },
+    {
+      range: `${config.google.sheetName}!${columnToLetter(OUTPUT_COLUMNS.profitRate)}${rowNumber}`,
+      values: [[cellValue(result.profitRate)]]
     }
   ];
 
@@ -115,6 +160,7 @@ async function writeResult(sheets, rowNumber, result) {
 module.exports = {
   getSheetsClient,
   readProducts,
+  readSettings,
   updateStatus,
   writeResult
 };

@@ -4,16 +4,18 @@ const config = require('./config');
 const Status = require('./status');
 const { ensureDir } = require('./utils');
 const { writeErrorLog } = require('./logger');
-const { getSheetsClient, readProducts, updateStatus, writeResult } = require('./sheets');
+const { getSheetsClient, readProducts, readSettings, updateStatus, writeResult } = require('./sheets');
 const { scrapeProductPage } = require('./scraper');
 const { downloadImages } = require('./images');
 const { generateBuymaContent } = require('./openaiClient');
+const { calculatePricing } = require('./pricing');
 
 async function main() {
   await ensureDir(config.imagesDir);
   await ensureDir(config.logsDir);
 
   const sheets = await getSheetsClient();
+  const settings = await readSettings(sheets);
   const products = await readProducts(sheets);
 
   if (products.length === 0) {
@@ -25,14 +27,14 @@ async function main() {
 
   try {
     for (const product of products) {
-      await processProduct({ browser, sheets, product });
+      await processProduct({ browser, sheets, settings, product });
     }
   } finally {
     await browser.close();
   }
 }
 
-async function processProduct({ browser, sheets, product }) {
+async function processProduct({ browser, sheets, settings, product }) {
   await updateStatus(sheets, product.rowNumber, Status.STARTING);
   const page = await browser.newPage();
   page.setDefaultTimeout(config.browser.timeoutMs);
@@ -55,13 +57,29 @@ async function processProduct({ browser, sheets, product }) {
       downloadedImagePaths: imagePaths
     });
 
-    const finalStatus = getCompletionStatus(scraped);
+    const pricing = calculatePricing({
+      sourceUrl: product.url,
+      brandName: product.brand,
+      costGbp: formatCost(scraped),
+      category: scraped.category,
+      productData: scraped,
+      settings
+    });
+    const finalStatus = appendStatusMessages(getCompletionStatus(scraped), [
+      ...pricing.warnings,
+      ...pricing.errors
+    ]);
     await writeResult(sheets, product.rowNumber, {
       cost: formatCost(scraped),
       title: productName,
       description: [generated.description, generated.productDetails].filter(Boolean).join('\n\n'),
       imageFileNames,
-      status: finalStatus
+      status: finalStatus,
+      category: pricing.category,
+      costWithShopShipping: pricing.canCalculate ? pricing.costWithShopShippingGbp : '',
+      internationalShipping: pricing.canCalculate ? pricing.internationalShippingGbp : '',
+      listingPrice: pricing.canCalculate ? pricing.listingPriceJpy : '',
+      profitRate: pricing.canCalculate ? pricing.profitRate : ''
     });
 
     await updateStatus(sheets, product.rowNumber, finalStatus);
@@ -74,7 +92,12 @@ async function processProduct({ browser, sheets, product }) {
       title: '',
       description: '',
       imageFileNames: [],
-      status: `${Status.ERROR}: ${logPath}`
+      status: `${Status.ERROR}: ${logPath}`,
+      category: '',
+      costWithShopShipping: '',
+      internationalShipping: '',
+      listingPrice: '',
+      profitRate: ''
     });
     await updateStatus(sheets, product.rowNumber, Status.ERROR);
     console.error(`エラー: ${product.rowNumber}行目 ${product.url}`, error.message);
@@ -99,6 +122,14 @@ function getImageFileNames(imagePaths) {
     .map((imagePath) => path.basename(imagePath))
     .filter(Boolean)
     .sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
+}
+
+function appendStatusMessages(baseStatus, messages) {
+  const uniqueMessages = (messages || [])
+    .filter(hasValue)
+    .filter((message, index, values) => values.indexOf(message) === index);
+  if (uniqueMessages.length === 0) return baseStatus;
+  return [baseStatus, ...uniqueMessages].filter(hasValue).join('\n');
 }
 
 function getCompletionStatus(scraped) {
