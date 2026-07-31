@@ -262,14 +262,7 @@ function calculatePricing({ sourceUrl, brandName, costGbp, category, productData
   }
 
   const costWithShopShippingGbp = normalizedCost + shopShippingGbp;
-  const customsDutyJpy = Math.ceil((normalizedCost + internationalShippingGbp) * pricingSettings.gbpJpyRate * pricingSettings.consumptionTaxRate);
-  const consumptionTaxJpy = Math.ceil((normalizedCost * pricingSettings.gbpJpyRate + customsDutyJpy) * pricingSettings.consumptionTaxRate);
-  const totalCostJpy = Math.ceil(
-    costWithShopShippingGbp * pricingSettings.gbpJpyRate
-    + internationalShippingGbp * pricingSettings.gbpJpyRate
-    + customsDutyJpy
-    + consumptionTaxJpy
-  );
+  const totalCostJpy = Math.ceil((costWithShopShippingGbp + internationalShippingGbp) * pricingSettings.gbpJpyRate);
   const minimumListingPrice = totalCostJpy / (1 - pricingSettings.buymaFeeRate - brandResult.marginRate);
   const listingPriceJpy = roundUpListingPrice(minimumListingPrice);
   const buymaFeeJpy = listingPriceJpy * pricingSettings.buymaFeeRate;
@@ -292,8 +285,8 @@ function calculatePricing({ sourceUrl, brandName, costGbp, category, productData
     shopShippingGbp,
     costWithShopShippingGbp,
     internationalShippingGbp,
-    customsDutyJpy,
-    consumptionTaxJpy,
+    customsDutyJpy: 0,
+    consumptionTaxJpy: 0,
     totalCostJpy,
     listingPriceJpy,
     profitRate: roundNumber(profitRate, 3),
