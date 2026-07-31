@@ -40,7 +40,7 @@ async function processProduct({ browser, sheets, product }) {
     const scraped = await scrapeProductPage(page, product.url);
     const brand = scraped.brand || product.brand;
     const productName = scraped.name || '商品名未取得';
-    const imagePaths = await downloadImages(page, scraped.imageSources || scraped.imageUrls || [], brand, productName);
+    const imagePaths = await downloadImages(page, scraped.imageSources || scraped.imageUrls || [], brand, productName, product.rowNumber);
 
     const generated = await generateBuymaContent({
       sourceUrl: product.url,

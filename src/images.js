@@ -4,21 +4,24 @@ const config = require('./config');
 const { ensureDir, sanitizeFilePart, toRelativePath } = require('./utils');
 const { getImageMetadata } = require('./imageMetadata');
 
-async function downloadImages(page, imageUrls, brand, productName) {
-  const result = await downloadImagesWithReport(page, imageUrls, brand, productName);
+async function downloadImages(page, imageUrls, brand, productName, rowNumber) {
+  const result = await downloadImagesWithReport(page, imageUrls, brand, productName, rowNumber);
   return result.saved.map((image) => image.path);
 }
 
-async function downloadImagesWithReport(page, imageUrls, brand, productName) {
+async function downloadImagesWithReport(page, imageUrls, brand, productName, rowNumber) {
   await ensureDir(config.imagesDir);
+  const outputDir = getProductImageDir(rowNumber);
+  await ensureDir(outputDir);
+  await clearGeneratedImages(outputDir);
+  console.log(`画像保存フォルダ: ${toRelativePath(outputDir, config.rootDir)}`);
+
   const saved = [];
   const duplicates = [];
   const lowResolution = [];
   const warnings = [];
   const seenKeys = new Map();
   const seenHashes = new Map();
-  const safeBrand = sanitizeFilePart(brand);
-  const safeName = sanitizeFilePart(productName);
 
   for (const item of imageUrls) {
     const image = typeof item === 'string' ? { url: item } : item;
@@ -81,7 +84,7 @@ async function downloadImagesWithReport(page, imageUrls, brand, productName) {
 
       const fileIndex = saved.length + 1;
       const role = fileIndex === 1 ? 'main' : 'sub';
-      const filePath = path.join(config.imagesDir, `${safeBrand}_${safeName}_${String(fileIndex).padStart(2, '0')}_${role}${metadata.extension}`);
+      const filePath = path.join(outputDir, `${String(fileIndex).padStart(2, '0')}_${role}${metadata.extension}`);
       await fs.writeFile(filePath, buffer);
 
       const relativePath = toRelativePath(filePath, config.rootDir);
@@ -110,7 +113,27 @@ async function downloadImagesWithReport(page, imageUrls, brand, productName) {
     warnings.push(`メイン画像が低解像度です: ${saved[0].width}x${saved[0].height}`);
   }
 
-  return { saved, duplicates, lowResolution, warnings };
+  return {
+    folderPath: toRelativePath(outputDir, config.rootDir),
+    saved,
+    duplicates,
+    lowResolution,
+    warnings
+  };
+}
+
+function getProductImageDir(rowNumber) {
+  const folderName = rowNumber ? sanitizeFilePart(rowNumber) : 'unknown';
+  return path.join(config.imagesDir, folderName);
+}
+
+async function clearGeneratedImages(outputDir) {
+  const entries = await fs.readdir(outputDir, { withFileTypes: true }).catch(() => []);
+  const generatedImagePattern = /^(?:01_main|\d+_sub)\.[^.]+$/;
+
+  await Promise.all(entries
+    .filter((entry) => entry.isFile() && generatedImagePattern.test(entry.name))
+    .map((entry) => fs.unlink(path.join(outputDir, entry.name))));
 }
 
 async function fetchImageWithFallback(page, image) {
