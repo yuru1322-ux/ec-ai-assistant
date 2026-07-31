@@ -1,7 +1,11 @@
 const { chromium } = require('playwright');
 const config = require('./config');
 const { uniq } = require('./utils');
-const { isVivienneWestwoodUrl, extractVivienneWestwoodImages } = require('./shops/vivienneWestwood');
+const {
+  isVivienneWestwoodUrl,
+  extractVivienneWestwoodImages,
+  extractVivienneWestwoodProductDetails
+} = require('./shops/vivienneWestwood');
 
 async function scrapeProducts(products) {
   const browser = await chromium.launch({ headless: config.browser.headless });
@@ -29,6 +33,13 @@ async function scrapeProductPage(page, url) {
   const shopImageSources = isVivienneWestwoodUrl(url)
     ? await extractVivienneWestwoodImages(page)
     : null;
+  const shopProductDetails = isVivienneWestwoodUrl(url)
+    ? await extractVivienneWestwoodProductDetails(page, url)
+    : null;
+  if (shopProductDetails && shopProductDetails.extractionLog && shopProductDetails.extractionLog.color) {
+    const colorLog = shopProductDetails.extractionLog.color;
+    console.log(`Vivienne Westwood色取得: ${colorLog.value || '未取得'} (${colorLog.source || '取得元なし'})`);
+  }
 
   return page.evaluate(() => {
     const clean = (value) => (value || '').replace(/\s+/g, ' ').trim();
@@ -106,13 +117,33 @@ async function scrapeProductPage(page, url) {
     const imageUrls = shopImageSources
       ? shopImageSources.map((image) => image.url)
       : uniq(data.imageUrls);
+    const mergedData = shopProductDetails
+      ? mergeScrapedData(data, shopProductDetails)
+      : data;
 
     return {
-      ...data,
+      ...mergedData,
       imageUrls,
       imageSources: shopImageSources || imageUrls.map((imageUrl) => ({ url: imageUrl }))
     };
   });
+}
+
+function hasValue(value) {
+  if (Array.isArray(value)) return value.length > 0;
+  return value !== undefined && value !== null && String(value).trim() !== '';
+}
+
+function mergeScrapedData(genericData, shopData) {
+  const merged = { ...genericData };
+  for (const [key, value] of Object.entries(shopData)) {
+    if (hasValue(value)) {
+      merged[key] = value;
+    } else if (!(key in merged)) {
+      merged[key] = value;
+    }
+  }
+  return merged;
 }
 
 module.exports = {
