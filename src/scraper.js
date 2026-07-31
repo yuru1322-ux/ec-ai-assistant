@@ -1,6 +1,7 @@
 const { chromium } = require('playwright');
 const config = require('./config');
 const { uniq } = require('./utils');
+const { isVivienneWestwoodUrl, extractVivienneWestwoodImages } = require('./shops/vivienneWestwood');
 
 async function scrapeProducts(products) {
   const browser = await chromium.launch({ headless: config.browser.headless });
@@ -25,6 +26,9 @@ async function scrapeProducts(products) {
 async function scrapeProductPage(page, url) {
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: config.browser.timeoutMs });
   await page.waitForLoadState('networkidle', { timeout: config.browser.timeoutMs }).catch(() => {});
+  const shopImageSources = isVivienneWestwoodUrl(url)
+    ? await extractVivienneWestwoodImages(page)
+    : null;
 
   return page.evaluate(() => {
     const clean = (value) => (value || '').replace(/\s+/g, ' ').trim();
@@ -98,10 +102,17 @@ async function scrapeProductPage(page, url) {
       category: labeledText(['カテゴリ', 'カテゴリー', 'Category', 'category']) || meta(['meta[property="product:category"]']),
       imageUrls: Array.from(new Set([...jsonImages, ...imageUrls]))
     };
-  }).then((data) => ({
-    ...data,
-    imageUrls: uniq(data.imageUrls)
-  }));
+  }).then((data) => {
+    const imageUrls = shopImageSources
+      ? shopImageSources.map((image) => image.url)
+      : uniq(data.imageUrls);
+
+    return {
+      ...data,
+      imageUrls,
+      imageSources: shopImageSources || imageUrls.map((imageUrl) => ({ url: imageUrl }))
+    };
+  });
 }
 
 module.exports = {
