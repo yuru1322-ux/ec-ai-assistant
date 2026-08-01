@@ -222,8 +222,11 @@ function calculatePricing({ sourceUrl, brandName, costGbp, category, productData
   const shopResult = resolveShop(sourceUrl);
   blockingWarnings.push(...shopResult.warnings);
 
-  const categoryResult = resolveShippingCategory({ category, productData });
+  const categoryResult = resolveShippingCategory({ category, productData, sourceUrl });
   blockingWarnings.push(...categoryResult.warnings);
+  if (categoryResult.category) {
+    console.log(`カテゴリ判定: category=${categoryResult.category} source=${categoryResult.source || 'unknown'} matched=${categoryResult.matched || 'unknown'}`);
+  }
 
   if (categoryResult.possibleLeatherShoes) {
     blockingWarnings.push('要確認：革靴の可能性があります。関税を手入力してください');
@@ -419,36 +422,245 @@ function calculateShopShipping(shopName, costGbp) {
   return null;
 }
 
-function resolveShippingCategory({ category, productData = {} }) {
-  const text = [
+function resolveShippingCategory({ category, productData = {}, sourceUrl = '' }) {
+  const explicitText = normalizeCategoryText([
     category,
     productData.category,
-    productData.name,
+    productData.breadcrumb,
+    productData.breadcrumbs,
+    productData.categoryPath,
+    categoryTextFromUrl(productData.sourceUrl || productData.url)
+  ]);
+  const urlText = normalizeCategoryText(categoryTextFromUrl(sourceUrl));
+  const nameText = normalizeCategoryText(productData.name);
+  const supportText = normalizeCategoryText([
     productData.description,
-    Array.isArray(productData.features) ? productData.features.join(' ') : productData.features,
-    productData.material,
-    productData.composition
-  ].filter(Boolean).join(' ').toLowerCase();
+    Array.isArray(productData.features) ? productData.features.join(' ') : productData.features
+  ]);
+  const materialText = normalizeCategoryText([productData.material, productData.composition]);
+  const allText = normalizeCategoryText([explicitText, urlText, nameText, supportText, materialText]);
 
-  const possibleLeatherShoes = /(shoe|shoes|boot|boots|loafer|loafers|sandal|sandals|trainer|trainers|sneaker|sneakers|靴|ブーツ|ローファー|サンダル)/i.test(text)
-    && /(leather|calf|cow|suede|革|レザー|カーフ|スエード)/i.test(text);
+  const possibleLeatherShoes = CATEGORY_PATTERNS.shoes.some((pattern) => pattern.test(allText))
+    && CATEGORY_PATTERNS.leather.some((pattern) => pattern.test(allText));
 
-  if (/wallet|purse|card holder|cardholder|coin|keyring|small leather goods|財布|ウォレット|カードケース|コインケース|革小物/.test(text)) {
-    return { category: '革小物', possibleLeatherShoes, warnings: [] };
+  const explicitMatch = firstCategoryMatch(explicitText, [
+    '革小物',
+    'バッグ・靴',
+    'アパレル',
+    'アクセサリー',
+    '大型'
+  ], 'category');
+  if (explicitMatch) return { ...explicitMatch, possibleLeatherShoes, warnings: [] };
+
+  const urlMatch = firstCategoryMatch(urlText, [
+    '革小物',
+    'バッグ・靴',
+    'アパレル',
+    'アクセサリー',
+    '大型'
+  ], 'url');
+  if (urlMatch) return { ...urlMatch, possibleLeatherShoes, warnings: [] };
+
+  const nameMatch = firstCategoryMatch(nameText, [
+    '革小物',
+    'アクセサリー',
+    'バッグ・靴',
+    'アパレル',
+    '大型'
+  ], 'product name');
+  if (nameMatch) return { ...nameMatch, possibleLeatherShoes, warnings: [] };
+
+  const supportMatch = firstCategoryMatch(supportText, [
+    '革小物',
+    'バッグ・靴',
+    'アパレル',
+    'アクセサリー',
+    '大型'
+  ], 'description/features');
+  if (supportMatch) return { ...supportMatch, possibleLeatherShoes, warnings: [] };
+
+  return {
+    category: '',
+    possibleLeatherShoes,
+    source: '',
+    matched: '',
+    warnings: ['要確認：カテゴリー判定']
+  };
+}
+
+const CATEGORY_PATTERNS = {
+  革小物: [
+    /\bwallets?\b/i,
+    /\bpurses?\b/i,
+    /\bcard\s*holders?\b/i,
+    /\bcardholders?\b/i,
+    /\bcoin\b/i,
+    /\bkeyrings?\b/i,
+    /\bsmall\s+leather\s+goods\b/i,
+    /財布/,
+    /ウォレット/,
+    /カードケース/,
+    /コインケース/,
+    /革小物/
+  ],
+  'バッグ・靴': [
+    /\bbags?\b/i,
+    /\bhandbags?\b/i,
+    /\bshoulder\s+bags?\b/i,
+    /\btotes?\b/i,
+    /\bbackpacks?\b/i,
+    /\bshoes?\b/i,
+    /\bboots?\b/i,
+    /\bsneakers?\b/i,
+    /\bloafers?\b/i,
+    /\bsandals?\b/i,
+    /\btrainers?\b/i,
+    /バッグ/,
+    /鞄/,
+    /ショルダーバッグ/,
+    /トート/,
+    /靴/,
+    /ブーツ/,
+    /スニーカー/,
+    /ローファー/,
+    /サンダル/
+  ],
+  アパレル: [
+    /\bclothing\b/i,
+    /\bcoats?\b/i,
+    /\bjackets?\b/i,
+    /\bdress(?:es)?\b/i,
+    /\bshirts?\b/i,
+    /\bblouses?\b/i,
+    /\btrousers?\b/i,
+    /\bskirts?\b/i,
+    /\bknitwear\b/i,
+    /\bknits?\b/i,
+    /\btops?\b/i,
+    /\bjumpers?\b/i,
+    /\bsweaters?\b/i,
+    /\bcardigans?\b/i,
+    /\bjeans?\b/i,
+    /\bpants?\b/i,
+    /\bt-shirts?\b/i,
+    /\btshirts?\b/i,
+    /\bpolos?\b/i,
+    /\bsweatshirts?\b/i,
+    /\bhoodies?\b/i,
+    /アパレル/,
+    /服/,
+    /コート/,
+    /ジャケット/,
+    /ワンピース/,
+    /ドレス/,
+    /シャツ/,
+    /ブラウス/,
+    /パンツ/,
+    /スカート/,
+    /ニット/,
+    /セーター/,
+    /カーディガン/,
+    /ジーンズ/,
+    /ポロ/,
+    /スウェット/,
+    /パーカー/
+  ],
+  アクセサリー: [
+    /\bjewellery\b/i,
+    /\bjewelry\b/i,
+    /\bearrings?\b/i,
+    /\bnecklaces?\b/i,
+    /\bbracelets?\b/i,
+    /\brings?\b/i,
+    /\baccessories\b/i,
+    /\baccessory\b/i,
+    /ジュエリー/,
+    /ピアス/,
+    /イヤリング/,
+    /ネックレス/,
+    /ブレスレット/,
+    /リング/,
+    /アクセサリー/
+  ],
+  大型: [
+    /\blarge\b/i,
+    /\bluggage\b/i,
+    /\bsuitcases?\b/i,
+    /\bfurniture\b/i,
+    /大型/,
+    /ラゲージ/,
+    /スーツケース/
+  ],
+  shoes: [
+    /\bshoes?\b/i,
+    /\bboots?\b/i,
+    /\bloafers?\b/i,
+    /\bsandals?\b/i,
+    /\btrainers?\b/i,
+    /\bsneakers?\b/i,
+    /靴/,
+    /ブーツ/,
+    /ローファー/,
+    /サンダル/,
+    /スニーカー/
+  ],
+  leather: [
+    /\bleather\b/i,
+    /\bcalf\b/i,
+    /\bcow\b/i,
+    /\bsuede\b/i,
+    /革/,
+    /レザー/,
+    /カーフ/,
+    /スエード/
+  ]
+};
+
+function firstCategoryMatch(text, categoryOrder, source) {
+  if (!text) return null;
+  for (const categoryName of categoryOrder) {
+    const matched = matchedCategoryKeyword(text, CATEGORY_PATTERNS[categoryName]);
+    if (matched) {
+      return {
+        category: categoryName,
+        source,
+        matched
+      };
+    }
   }
-  if (/jewellery|jewelry|earring|earrings|necklace|bracelet|ring|accessor|ジュエリー|ピアス|イヤリング|ネックレス|ブレスレット|リング|アクセサリー/.test(text)) {
-    return { category: 'アクセサリー', possibleLeatherShoes, warnings: [] };
+  return null;
+}
+
+function matchedCategoryKeyword(text, patterns) {
+  for (const pattern of patterns || []) {
+    const match = text.match(pattern);
+    if (match) return match[0];
   }
-  if (/bag|handbag|shoulder|tote|backpack|shoe|shoes|boot|boots|sneaker|sneakers|バッグ|鞄|ショルダー|トート|靴|ブーツ|スニーカー/.test(text)) {
-    return { category: 'バッグ・靴', possibleLeatherShoes, warnings: [] };
+  return '';
+}
+
+function normalizeCategoryText(value) {
+  const flattened = Array.isArray(value)
+    ? value.flatMap((item) => Array.isArray(item) ? item : [item])
+    : [value];
+  return flattened
+    .filter(Boolean)
+    .join(' ')
+    .replace(/shopping bag|header|footer/gi, ' ')
+    .replace(/[/_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function categoryTextFromUrl(sourceUrl) {
+  if (!sourceUrl) return '';
+  try {
+    const parsed = new URL(sourceUrl);
+    return parsed.pathname;
+  } catch (_) {
+    return '';
   }
-  if (/clothing|coat|jacket|dress|shirt|trouser|skirt|knit|top|アパレル|服|コート|ジャケット|ワンピース|シャツ|パンツ|スカート|ニット/.test(text)) {
-    return { category: 'アパレル', possibleLeatherShoes, warnings: [] };
-  }
-  if (/large|luggage|suitcase|furniture|大型|ラゲージ|スーツケース/.test(text)) {
-    return { category: '大型', possibleLeatherShoes, warnings: [] };
-  }
-  return { category: '', possibleLeatherShoes, warnings: ['要確認：カテゴリー判定'] };
 }
 
 function calculateInternationalShipping(costGbp, category) {
