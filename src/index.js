@@ -41,6 +41,12 @@ async function processProduct({ browser, sheets, settings, product }) {
 
   try {
     const scraped = await scrapeProductPage(page, product.url);
+    if (scraped.shouldStop) {
+      await updateStatus(sheets, product.rowNumber, scraped.status);
+      console.log(`要確認: ${product.rowNumber}行目 ${product.url} ${scraped.reason || scraped.status}`);
+      return;
+    }
+
     const brand = scraped.brand || product.brand;
     const productName = scraped.name || '商品名未取得';
     const imagePaths = await downloadImages(page, scraped.imageSources || scraped.imageUrls || [], brand, productName, product.rowNumber);
@@ -57,20 +63,28 @@ async function processProduct({ browser, sheets, settings, product }) {
       downloadedImagePaths: imagePaths
     });
 
-    const pricing = calculatePricing({
-      sourceUrl: product.url,
-      brandName: product.brand,
-      costGbp: formatCost(scraped),
-      category: scraped.category,
-      productData: scraped,
-      settings
-    });
+    const costResult = getCostGbp(scraped, settings);
+    const pricing = costResult.warning
+      ? {
+        category: scraped.category || '',
+        warnings: [costResult.warning],
+        errors: [],
+        canCalculate: false
+      }
+      : calculatePricing({
+        sourceUrl: product.url,
+        brandName: product.brand,
+        costGbp: costResult.cost,
+        category: scraped.category,
+        productData: scraped,
+        settings
+      });
     const finalStatus = appendStatusMessages(getCompletionStatus(scraped), [
       ...pricing.warnings,
       ...pricing.errors
     ]);
     await writeResult(sheets, product.rowNumber, {
-      cost: formatCost(scraped),
+      cost: costResult.warning ? '' : costResult.cost,
       title: productName,
       description: [generated.description, generated.productDetails].filter(Boolean).join('\n\n'),
       imageFileNames,
@@ -115,6 +129,35 @@ function formatCost(scraped) {
   if (!hasValue(scraped.price)) return '';
   const price = Number(scraped.price);
   return Number.isFinite(price) ? price : '';
+}
+
+function getCostGbp(scraped, settings) {
+  const price = formatCost(scraped);
+  if (!hasValue(price)) return { cost: '', warning: '' };
+  const currency = String(scraped.currency || '').trim().toUpperCase();
+  if (!currency) return { cost: '', warning: '要確認：通貨判定失敗' };
+  if (currency === 'GBP') return { cost: price, warning: '' };
+  if (currency === 'EUR') {
+    const eurGbpRate = settingNumber(settings, 'EUR_GBP_RATE');
+    if (!Number.isFinite(eurGbpRate) || eurGbpRate <= 0) {
+      return { cost: '', warning: '要確認：EUR/GBP為替レートを確認してください' };
+    }
+    return { cost: roundNumber(price * eurGbpRate, 2), warning: '' };
+  }
+  return { cost: '', warning: `要確認：通貨換算が必要（${currency}→GBP）` };
+}
+
+function settingNumber(settings, key) {
+  if (!settings || settings[key] === undefined || settings[key] === null || String(settings[key]).trim() === '') {
+    return null;
+  }
+  const number = Number(settings[key]);
+  return Number.isFinite(number) ? number : null;
+}
+
+function roundNumber(value, digits) {
+  const factor = 10 ** digits;
+  return Math.round((value + Number.EPSILON) * factor) / factor;
 }
 
 function getImageFileNames(imagePaths) {
