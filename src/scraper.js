@@ -18,6 +18,12 @@ const {
   extractZalandoImages,
   ZALANDO_IMAGE_FAILURE_STATUS
 } = require('./shops/zalando');
+const {
+  isHarveyNicholsUrl,
+  extractHarveyNicholsImages,
+  extractHarveyNicholsProductDetails,
+  HARVEY_NICHOLS_IMAGE_FAILURE_STATUS
+} = require('./shops/harveyNichols');
 
 async function scrapeProducts(products) {
   const browser = await chromium.launch({ headless: config.browser.headless });
@@ -62,6 +68,22 @@ async function scrapeProductPage(page, url) {
   }
   const isVivienne = isVivienneWestwoodUrl(url);
   const isHobbs = isHobbsLondonUrl(url);
+  const isHarveyNichols = isHarveyNicholsUrl(url);
+  if (isHarveyNichols) {
+    const shopProductDetails = await extractHarveyNicholsProductDetails(page, url);
+    const shopImageSources = await extractHarveyNicholsImages(page);
+    if (shopProductDetails && shopProductDetails.extractionLog && shopProductDetails.extractionLog.color) {
+      const colorLog = shopProductDetails.extractionLog.color;
+      console.log(`Harvey Nichols色取得: ${colorLog.value || '未取得'} (${colorLog.source || '取得元なし'})`);
+    }
+    return {
+      ...shopProductDetails,
+      status: shopImageSources.length > 0 ? '' : HARVEY_NICHOLS_IMAGE_FAILURE_STATUS,
+      imageUrls: shopImageSources.map((image) => image.url),
+      imageSources: shopImageSources
+    };
+  }
+
   const shopImageSources = isVivienne
     ? await extractVivienneWestwoodImages(page)
     : isHobbs
