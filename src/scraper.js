@@ -6,6 +6,11 @@ const {
   extractVivienneWestwoodImages,
   extractVivienneWestwoodProductDetails
 } = require('./shops/vivienneWestwood');
+const {
+  isHobbsLondonUrl,
+  extractHobbsLondonImages,
+  extractHobbsLondonProductDetails
+} = require('./shops/hobbsLondon');
 
 async function scrapeProducts(products) {
   const browser = await chromium.launch({ headless: config.browser.headless });
@@ -30,15 +35,22 @@ async function scrapeProducts(products) {
 async function scrapeProductPage(page, url) {
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: config.browser.timeoutMs });
   await page.waitForLoadState('networkidle', { timeout: config.browser.timeoutMs }).catch(() => {});
-  const shopImageSources = isVivienneWestwoodUrl(url)
+  const isVivienne = isVivienneWestwoodUrl(url);
+  const isHobbs = isHobbsLondonUrl(url);
+  const shopImageSources = isVivienne
     ? await extractVivienneWestwoodImages(page)
-    : null;
-  const shopProductDetails = isVivienneWestwoodUrl(url)
+    : isHobbs
+      ? await extractHobbsLondonImages(page)
+      : null;
+  const shopProductDetails = isVivienne
     ? await extractVivienneWestwoodProductDetails(page, url)
-    : null;
+    : isHobbs
+      ? await extractHobbsLondonProductDetails(page, url)
+      : null;
   if (shopProductDetails && shopProductDetails.extractionLog && shopProductDetails.extractionLog.color) {
     const colorLog = shopProductDetails.extractionLog.color;
-    console.log(`Vivienne Westwood色取得: ${colorLog.value || '未取得'} (${colorLog.source || '取得元なし'})`);
+    const shopName = isHobbs ? 'Hobbs London' : 'Vivienne Westwood';
+    console.log(`${shopName}色取得: ${colorLog.value || '未取得'} (${colorLog.source || '取得元なし'})`);
   }
 
   return page.evaluate(() => {

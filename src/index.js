@@ -125,11 +125,28 @@ function getImageFileNames(imagePaths) {
 }
 
 function appendStatusMessages(baseStatus, messages) {
+  const seenReasons = new Set(extractStatusReasons(baseStatus));
   const uniqueMessages = (messages || [])
     .filter(hasValue)
-    .filter((message, index, values) => values.indexOf(message) === index);
+    .filter((message, index, values) => values.indexOf(message) === index)
+    .filter((message) => {
+      const reasons = extractStatusReasons(message);
+      if (reasons.length === 0) return true;
+      const hasDuplicateReason = reasons.some((reason) => seenReasons.has(reason));
+      reasons.forEach((reason) => seenReasons.add(reason));
+      return !hasDuplicateReason;
+    });
   if (uniqueMessages.length === 0) return baseStatus;
   return [baseStatus, ...uniqueMessages].filter(hasValue).join('\n');
+}
+
+function extractStatusReasons(message) {
+  const text = String(message || '').trim();
+  const normalized = text.replace(/^要確認[:：]\s*/, '').replace(/^エラー[:：]\s*/, '');
+  return normalized
+    .split(/[、,\n]/)
+    .map((part) => part.replace(/^要確認[:：]\s*/, '').replace(/^エラー[:：]\s*/, '').trim())
+    .filter(Boolean);
 }
 
 function getCompletionStatus(scraped) {
@@ -140,7 +157,8 @@ function getCompletionStatus(scraped) {
     ['素材取得失敗', scraped.composition || scraped.material],
     ['カラー取得失敗', scraped.color],
     ['価格取得失敗', scraped.price],
-    ['商品コード取得失敗', scraped.productCode || scraped.sku || scraped.mpn]
+    ['商品コード取得失敗', scraped.productCode || scraped.sku || scraped.mpn],
+    ['商品画像取得失敗', scraped.imageSources]
   ];
   const missing = checks
     .filter(([, value]) => !hasValue(value))
