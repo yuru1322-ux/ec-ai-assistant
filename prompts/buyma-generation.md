@@ -184,6 +184,9 @@ Rules:
 - Include a Japanese product category name.
 - Prefer the most specific Japanese category name, such as `ネックレス`, `ピアス`, `二つ折り財布`, `ワンピース`, or `ニット`.
 - Do not add a broad category such as `アクセサリー`, `バッグ`, or `アパレル` when a more specific category name is already present.
+- Prioritize the item shape, silhouette, and searchable category words over color.
+- For clothing, strongly prefer shape/category words such as `ワンピース`, `ミディドレス`, `フィット＆フレア`, `シャツ`, `ジャケット`, `トレンチコート`, `ニット`, `スカート`, or other source-supported garment forms.
+- Use color in titles only when there is not enough source-supported product name, shape, category, motif, material, or design information to create a natural searchable title.
 - For long brand names, shorten the title by keeping only one or two strongest factual keywords after the category.
 - If the first draft exceeds weighted length 60, remove lower-priority words in this order: broad category, color, material, motif, product-specific name.
 - When the brand is `Vivienne Westwood`, the text after `【Vivienne Westwood】` must be within weighted length 39.
@@ -203,7 +206,8 @@ Rules:
 - Include material only when it improves searchability or appeal.
 - Do not place `真鍮製` or other low-appeal material words at the front of the title unless the product's main appeal is clearly material.
 - Do not generate title candidates like `【ブランド名】真鍮製 ネックレス`.
-- Naturally include motif, shape, color, material, or other distinctive facts when present.
+- Naturally include motif, shape, material, or other distinctive facts when present.
+- Do not add color to every title candidate just because `scraped.color` is available.
 - Use seasonal words only when seasonality is explicit in the source.
 - Do not overuse symbols.
 - Do not use unnatural keyword lists.

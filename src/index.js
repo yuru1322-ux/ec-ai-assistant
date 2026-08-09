@@ -83,9 +83,10 @@ async function processProduct({ browser, sheets, settings, product }) {
       ...pricing.warnings,
       ...pricing.errors
     ]);
+    const sheetTitle = formatSheetTitle(generated, productName);
     await writeResult(sheets, product.rowNumber, {
       cost: costResult.warning ? '' : costResult.cost,
-      title: productName,
+      title: sheetTitle,
       description: [generated.description, generated.productDetails].filter(Boolean).join('\n\n'),
       imageFileNames,
       status: finalStatus,
@@ -165,6 +166,14 @@ function getImageFileNames(imagePaths) {
     .map((imagePath) => path.basename(imagePath))
     .filter(Boolean)
     .sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
+}
+
+function formatSheetTitle(generated, fallbackTitle) {
+  const candidates = Array.isArray(generated.titleCandidates)
+    ? generated.titleCandidates.map((title) => String(title || '').trim()).filter(Boolean)
+    : [];
+  const titles = candidates.length > 0 ? candidates : [generated.title || fallbackTitle];
+  return Array.from(new Set(titles)).slice(0, 5).join('\n');
 }
 
 function appendStatusMessages(baseStatus, messages) {
