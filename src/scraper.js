@@ -24,6 +24,13 @@ const {
   extractHarveyNicholsProductDetails,
   HARVEY_NICHOLS_IMAGE_FAILURE_STATUS
 } = require('./shops/harveyNichols');
+const {
+  isSelfPortraitUrl,
+  extractSelfPortraitImages,
+  extractSelfPortraitProductDetails,
+  extractSelfPortraitSizeGuide,
+  SELF_PORTRAIT_IMAGE_FAILURE_STATUS
+} = require('./shops/selfPortrait');
 
 async function scrapeProducts(products) {
   const browser = await chromium.launch({ headless: config.browser.headless });
@@ -69,6 +76,26 @@ async function scrapeProductPage(page, url) {
   const isVivienne = isVivienneWestwoodUrl(url);
   const isHobbs = isHobbsLondonUrl(url);
   const isHarveyNichols = isHarveyNicholsUrl(url);
+  const isSelfPortrait = isSelfPortraitUrl(url);
+  if (isSelfPortrait) {
+    const shopProductDetails = await extractSelfPortraitProductDetails(page, url);
+    const sizeGuide = await extractSelfPortraitSizeGuide(page);
+    const shopImageSources = await extractSelfPortraitImages(page);
+    if (shopProductDetails && shopProductDetails.extractionLog && shopProductDetails.extractionLog.color) {
+      const colorLog = shopProductDetails.extractionLog.color;
+      console.log(`Self-Portrait色取得: ${colorLog.value || '未取得'} (${colorLog.source || '取得元なし'})`);
+    }
+    return {
+      ...shopProductDetails,
+      dimensions: sizeGuide.formatted || shopProductDetails.dimensions || '',
+      garmentMeasurements: sizeGuide.rows || [],
+      sizeGuide,
+      sizeGuideScreenshotBase64: sizeGuide.screenshotBase64 || '',
+      status: shopImageSources.length > 0 ? '' : SELF_PORTRAIT_IMAGE_FAILURE_STATUS,
+      imageUrls: shopImageSources.map((image) => image.url),
+      imageSources: shopImageSources
+    };
+  }
   if (isHarveyNichols) {
     const shopProductDetails = await extractHarveyNicholsProductDetails(page, url);
     const shopImageSources = await extractHarveyNicholsImages(page);

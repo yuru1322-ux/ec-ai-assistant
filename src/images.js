@@ -9,6 +9,16 @@ async function downloadImages(page, imageUrls, brand, productName, rowNumber) {
   return result.saved.map((image) => image.path);
 }
 
+async function saveSizeGuideImage(rowNumber, screenshotBase64) {
+  if (!screenshotBase64) return '';
+  await ensureDir(config.imagesDir);
+  const outputDir = getProductImageDir(rowNumber);
+  await ensureDir(outputDir);
+  const filePath = path.join(outputDir, 'size_guide.jpg');
+  await fs.writeFile(filePath, Buffer.from(screenshotBase64, 'base64'));
+  return toRelativePath(filePath, config.rootDir);
+}
+
 async function downloadImagesWithReport(page, imageUrls, brand, productName, rowNumber) {
   await ensureDir(config.imagesDir);
   const outputDir = getProductImageDir(rowNumber);
@@ -129,7 +139,7 @@ function getProductImageDir(rowNumber) {
 
 async function clearGeneratedImages(outputDir) {
   const entries = await fs.readdir(outputDir, { withFileTypes: true }).catch(() => []);
-  const generatedImagePattern = /^(?:01_main|\d+_sub)\.[^.]+$/;
+  const generatedImagePattern = /^(?:01_main|\d+_sub|size_guide)\.[^.]+$/;
 
   await Promise.all(entries
     .filter((entry) => entry.isFile() && generatedImagePattern.test(entry.name))
@@ -174,4 +184,4 @@ function normalizeImageUrl(imageUrl) {
   }
 }
 
-module.exports = { downloadImages, downloadImagesWithReport };
+module.exports = { downloadImages, downloadImagesWithReport, saveSizeGuideImage };

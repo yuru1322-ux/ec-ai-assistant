@@ -6,7 +6,7 @@ const { ensureDir } = require('./utils');
 const { writeErrorLog } = require('./logger');
 const { getSheetsClient, readProducts, readSettings, updateStatus, writeResult } = require('./sheets');
 const { scrapeProductPage } = require('./scraper');
-const { downloadImages } = require('./images');
+const { downloadImages, saveSizeGuideImage } = require('./images');
 const { generateBuymaContent } = require('./openaiClient');
 const { calculatePricing } = require('./pricing');
 
@@ -50,6 +50,10 @@ async function processProduct({ browser, sheets, settings, product }) {
     const brand = scraped.brand || product.brand;
     const productName = scraped.name || '商品名未取得';
     const imagePaths = await downloadImages(page, scraped.imageSources || scraped.imageUrls || [], brand, productName, product.rowNumber);
+    if (scraped.sizeGuideScreenshotBase64) {
+      const sizeGuidePath = await saveSizeGuideImage(product.rowNumber, scraped.sizeGuideScreenshotBase64);
+      if (sizeGuidePath) console.log(`サイズガイド保存: ${sizeGuidePath}`);
+    }
     const imageFileNames = getImageFileNames(imagePaths);
 
     const generated = await generateBuymaContent({
