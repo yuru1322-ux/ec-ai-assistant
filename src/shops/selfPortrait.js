@@ -228,6 +228,9 @@ async function extractSelfPortraitImages(page) {
         alt: productName,
         selector: 'json-ld-image'
       }));
+    const jsonImageStems = new Set(jsonImages
+      .map((image) => imageStem(image.sourceUrl))
+      .filter(Boolean));
     const domImages = Array.from(document.querySelectorAll('main img'))
       .map((img, index) => ({
         order: jsonImages.length + index + 1,
@@ -241,10 +244,14 @@ async function extractSelfPortraitImages(page) {
     return all.filter((image) => {
       const value = `${image.sourceUrl} ${image.srcset} ${image.alt}`;
       if (!/cdn\/shop\/files\//i.test(value)) return false;
-      if (/EDITS|RESIDENCY|banner|logo|icon|navigation|recommend|related|DAYWEAR|OCCASION|HOLIDAY|PARTY|SANDIWARA/i.test(value)) return false;
+      if (/EDITS|RESIDENCY|banner|logo|icon|navigation|recommend|related|thumbnail|DAYWEAR|OCCASION|HOLIDAY|PARTY|SANDIWARA/i.test(value)) return false;
+      if (image.selector === 'json-ld-image') return true;
+
+      const stem = imageStem(image.sourceUrl);
+      if (jsonImageStems.size > 0) return jsonImageStems.has(stem);
       if (skuPrefix && !value.includes(skuPrefix)) return false;
       if (productImagePattern && !productImagePattern.test(value)) return false;
-      return true;
+      return Boolean(productImagePattern);
     });
 
     function getJsonLdProduct() {
@@ -268,8 +275,19 @@ async function extractSelfPortraitImages(page) {
     function extractSkuPrefix(product) {
       const offers = Array.isArray(product && product.offers) ? product.offers : [product && product.offers].filter(Boolean);
       const sku = clean(offers[0] && offers[0].sku);
-      const match = sku.match(/^(.+?)-UK\d+/i);
-      return match ? match[1] : sku.split('-UK')[0];
+      return sku
+        .replace(/-(?:UK\d{1,2}(?:\/US\d{1,2})?|US\d{1,2}|XXS|XS|S|M|L|XL|XXL|\d{1,2})$/i, '')
+        .replace(/-UK\d{1,2}(?:\/US\d{1,2})?.*$/i, '');
+    }
+
+    function imageStem(imageUrl) {
+      try {
+        const pathname = new URL(imageUrl).pathname;
+        const fileName = decodeURIComponent(pathname.split('/').pop() || '');
+        return fileName.replace(/\.(?:jpe?g|png|webp|avif)$/i, '');
+      } catch (_) {
+        return '';
+      }
     }
 
     function escapeRegExp(value) {
