@@ -31,6 +31,12 @@ const {
   extractSelfPortraitSizeGuide,
   SELF_PORTRAIT_IMAGE_FAILURE_STATUS
 } = require('./shops/selfPortrait');
+const {
+  isPhaseEightUrl,
+  extractPhaseEightImages,
+  extractPhaseEightProductDetails,
+  PHASE_EIGHT_IMAGE_FAILURE_STATUS
+} = require('./shops/phaseEight');
 
 async function scrapeProducts(products) {
   const browser = await chromium.launch({ headless: config.browser.headless });
@@ -77,6 +83,21 @@ async function scrapeProductPage(page, url) {
   const isHobbs = isHobbsLondonUrl(url);
   const isHarveyNichols = isHarveyNicholsUrl(url);
   const isSelfPortrait = isSelfPortraitUrl(url);
+  const isPhaseEight = isPhaseEightUrl(url);
+  if (isPhaseEight) {
+    const shopProductDetails = await extractPhaseEightProductDetails(page, url);
+    const shopImageSources = await extractPhaseEightImages(page);
+    if (shopProductDetails && shopProductDetails.extractionLog && shopProductDetails.extractionLog.color) {
+      const colorLog = shopProductDetails.extractionLog.color;
+      console.log(`Phase Eight色取得: ${colorLog.value || '未取得'} (${colorLog.source || '取得元なし'})`);
+    }
+    return {
+      ...shopProductDetails,
+      status: shopImageSources.length > 0 ? '' : PHASE_EIGHT_IMAGE_FAILURE_STATUS,
+      imageUrls: shopImageSources.map((image) => image.url),
+      imageSources: shopImageSources
+    };
+  }
   if (isSelfPortrait) {
     const shopProductDetails = await extractSelfPortraitProductDetails(page, url);
     const sizeGuide = await extractSelfPortraitSizeGuide(page);
