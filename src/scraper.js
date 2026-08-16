@@ -37,6 +37,10 @@ const {
   extractPhaseEightProductDetails,
   PHASE_EIGHT_IMAGE_FAILURE_STATUS
 } = require('./shops/phaseEight');
+const {
+  isSelfridgesUrl,
+  inspectSelfridgesPage
+} = require('./shops/selfridges');
 
 async function scrapeProducts(products) {
   const browser = await chromium.launch({ headless: config.browser.headless });
@@ -75,6 +79,8 @@ async function scrapeProductPage(page, url) {
       imageUrls: shopImageSources.map((image) => image.url),
       imageSources: shopImageSources
     };
+  } else if (isSelfridgesUrl(url)) {
+    return inspectSelfridgesPage(page, url, config.browser.timeoutMs);
   } else {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: config.browser.timeoutMs });
     await page.waitForLoadState('networkidle', { timeout: config.browser.timeoutMs }).catch(() => {});
