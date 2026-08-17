@@ -59,7 +59,7 @@ function waitForCode() {
           return;
         }
 
-        res.end('Google authorization completed. You can close this tab and return to Codex.');
+        res.end('Google authorization completed. You can close this tab and return to the terminal.');
         server.close();
         resolve(code);
       } catch (error) {

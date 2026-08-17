@@ -2,134 +2,141 @@
 
 Googleスプレッドシートの商品URLとブランド名を読み込み、Playwrightで商品情報と画像を取得し、OpenAI Responses APIでBUYMA向けの商品タイトル・商品コメント・製品詳細を生成して、スプレッドシートへ書き戻すNode.jsツールです。
 
+このREADMEはセットアップと実行の入口です。仕様の詳細は次のドキュメントを参照してください。実装とドキュメントが食い違う場合は、**実装が正**です。
+
+| ドキュメント | 内容 |
+| --- | --- |
+| `CLAUDE.md` | Claude Code向け引き継ぎ。禁止事項と安全ルール |
+| `docs/project-overview.md` | 全体構成と処理フロー |
+| `docs/spreadsheet-spec.md` | スプレッドシート列と`設定`シートの仕様 |
+| `docs/pricing-rules.md` | 価格計算の全ルール |
+| `docs/scraper-guide.md` | ショップ別スクレイパーの仕様 |
+| `docs/buyma-generation.md` | BUYMA生成の出力仕様 |
+| `docs/known-issues.md` | 既知の制限・ステータス一覧・安全ルール |
+| `prompts/buyma-generation.md` | OpenAIへ渡す本番プロンプト |
+
+## 実行環境
+
+| 項目 | バージョン |
+| --- | --- |
+| Node.js | v24.19.0（`/usr/local/bin/node`、公式LTS。最低要件 >=18） |
+| npm | 11.17.0（`/usr/local/bin/npm`） |
+| Playwright Chromium | revision 1228 |
+| パッケージ管理 | pnpm（`pnpm-lock.yaml`） |
+
+依存パッケージは pnpm で導入済みで、`pnpm-lock.yaml` と一致しています。**`npm install` は実行しないでください。** 依存を入れ直す必要がある場合のみ次を使います。
+
+```bash
+pnpm install --frozen-lockfile
+```
+
 ## ディレクトリ構成
 
 ```text
 /
-├── src
-│   ├── config.js
-│   ├── images.js
-│   ├── index.js
-│   ├── logger.js
-│   ├── openaiClient.js
-│   ├── scraper.js
-│   ├── sheets.js
-│   ├── status.js
-│   └── utils.js
-├── images
+├── CLAUDE.md
+├── README.md
+├── package.json
+├── pnpm-lock.yaml
+├── .env.example
+├── docs
+│   ├── buyma-generation.md
+│   ├── known-issues.md
+│   ├── pricing-rules.md
+│   ├── project-overview.md
+│   ├── scraper-guide.md
+│   └── spreadsheet-spec.md
 ├── prompts
 │   └── buyma-generation.md
-├── logs
-├── .env.example
-├── package.json
-└── README.md
+├── src
+│   ├── config.js          環境変数の読み込み
+│   ├── googleAuth.js      Google OAuthトークン取得
+│   ├── imageMetadata.js   画像の形式・寸法・ハッシュ判定
+│   ├── images.js          画像ダウンロードと保存
+│   ├── index.js           オーケストレーション（エントリポイント）
+│   ├── logger.js          エラーログ出力
+│   ├── openaiClient.js    OpenAI Responses API呼び出し
+│   ├── pricing.js         価格計算・ショップ送料・カテゴリー判定
+│   ├── scraper.js         スクレイピングのディスパッチャと汎用フォールバック
+│   ├── sheets.js          Google Sheetsの認証・読み書き
+│   ├── status.js          ステータス定数
+│   ├── utils.js           共通ユーティリティ
+│   └── shops              ショップ別専用スクレイパー
+│       ├── harveyNichols.js
+│       ├── hobbsLondon.js
+│       ├── phaseEight.js
+│       ├── selfPortrait.js
+│       ├── selfridges.js
+│       ├── vivienneWestwood.js
+│       └── zalando.js
+├── images                 行番号ごとの保存画像（gitignore）
+└── logs                   エラーログ（gitignore）
 ```
 
-## セットアップ方法
+## セットアップ
 
-1. 依存パッケージをインストールします。
+### 1. Playwrightのブラウザ
 
-```bash
-npm install
-```
-
-2. Playwrightのブラウザをインストールします。
+未導入の場合のみ実行します。
 
 ```bash
 npm run playwright:install
 ```
 
-3. `.env.example` を `.env` にコピーして、必要な値を設定します。
+### 2. `.env` の作成
 
 ```bash
 cp .env.example .env
 ```
 
-## 必要なAPIキー
+設定項目は「環境変数」の節を参照してください。
 
-- Google Sheets APIを利用できるGoogle Cloudサービスアカウント
-- OpenAI APIキー
+### 3. Google OAuth
 
-## Google Sheets API設定方法
+このツールはGoogle OAuth（デスクトップアプリ型クライアント）でスプレッドシートにアクセスします。
 
-1. Google Cloud Consoleでプロジェクトを作成します。
-2. Google Sheets APIを有効化します。
-3. サービスアカウントを作成します。
-4. サービスアカウントのJSONキーを作成し、プロジェクトルートに `google-service-account.json` として保存します。
-5. 対象スプレッドシートをサービスアカウントのメールアドレスに共有します。編集権限が必要です。
-6. `.env` に以下を設定します。
-
-```env
-GOOGLE_SHEET_ID=1q6DIJiJZ8iusEOiI7bJMW1MaQ83x-T_ntrTrsmPlRI4
-GOOGLE_SHEET_NAME=シート1
-GOOGLE_APPLICATION_CREDENTIALS=./google-service-account.json
-```
-
-読み込み列は以下です。
-
-- A列: 商品URL
-- B列: ブランド
-- C列: 備考欄
-
-書き戻し列は以下です。
-
-- D列: 原価（GBP）
-- E列: 商品名
-- F列: 商品説明・製品詳細
-- G列: 画像ファイル名
-- H列: ステータス
-- I列: カテゴリー
-- J列: 原価＋ショップ配送料（GBP）
-- K列: 国際送料（GBP）
-- L列: 出品価格（円）
-- M列: 利益率
-
-A列、B列、C列は更新しません。
-G列には保存画像のファイル名のみを昇順で書き込み、画像URL、保存フォルダ、フルパスは書き込みません。
-D列、J列、K列、L列、M列は数値として書き込みます。
-
-## OpenAI API設定方法
-
-OpenAIのAPIキーを発行し、`.env` に設定します。
-
-```env
-OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-4.1-mini
-```
-
-このツールはOpenAI Responses APIを使用します。
-
-## 価格計算
-
-価格計算では、B列のブランド名からブランド別最低利益率を判定します。
-A列の商品URLからショップを判定し、ショップ別送料を計算します。
-
-価格計算の設定値は、Googleスプレッドシートの `設定` シートで管理します。
-
-```text
-設定名            設定値
-GBP_JPY_RATE     218
-BUYMA_FEE_RATE   0.055
-CONSUMPTION_TAX  0.10
-```
-
-設定値が未設定、空欄、数値以外、不正な値の場合は価格計算を停止し、ステータスへエラーを追記します。
-
-ショップ送料やカテゴリーを安全に判定できない場合は、出品価格を確定せず、ステータスに要確認内容を追記します。
-
-## Playwrightセットアップ方法
-
-依存関係のインストール後、以下を実行します。
+1. Google Cloud Consoleでプロジェクトを作成し、Google Sheets APIを有効化します。
+2. 認証情報からOAuthクライアントIDを作成します。種類は**デスクトップアプリ**を選びます。
+3. リダイレクトURIに `http://127.0.0.1:53682/oauth2callback` を設定します。
+4. クライアントJSONをプロジェクトルートに `google-oauth-client.json` として保存します。
+5. OAuth同意画面の公開ステータスを**「本番環境」**にします。「テスト」のままだとリフレッシュトークンが7日で失効し、毎週再認証が必要になります。
+6. トークンを取得します。
 
 ```bash
-npm run playwright:install
+npm run auth:google
 ```
 
-画面を表示しながら動作確認したい場合は `.env` で以下を設定します。
+表示されたURLをブラウザで開いて許可すると、`google-oauth-token.json` が保存されます。同意画面が未検証の場合は「このアプリはGoogleで確認されていません」という警告が出ますが、「詳細」から進めます。
 
-```env
-HEADLESS=false
-```
+使用スコープは `https://www.googleapis.com/auth/spreadsheets` です。
+
+対象スプレッドシートは、認証したGoogleアカウントに編集権限がある必要があります。
+
+サービスアカウントも利用できます。`GOOGLE_APPLICATION_CREDENTIALS` が指すファイルが存在する場合に限り、OAuthより優先して使われます。存在しない場合はOAuthにフォールバックします。
+
+### 4. OpenAI APIキー
+
+OpenAIのAPIキーを発行し、`.env` に設定します。このツールはOpenAI Responses APIを使用し、JSON Schemaで出力形式を固定しています。
+
+## 環境変数
+
+`.env` の全項目です。
+
+| 変数 | 説明 |
+| --- | --- |
+| `GOOGLE_SHEET_ID` | 対象スプレッドシートのID |
+| `GOOGLE_SHEET_NAME` | 処理対象シート名。運用中は `2026/07` のような月次シート |
+| `GOOGLE_APPLICATION_CREDENTIALS` | サービスアカウントJSONのパス。存在する場合のみ使用 |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | OAuthクライアントJSONのパス |
+| `GOOGLE_OAUTH_TOKEN` | OAuthトークンJSONのパス |
+| `OPENAI_API_KEY` | OpenAI APIキー |
+| `OPENAI_MODEL` | 使用モデル。既定は `gpt-4.1-mini` |
+| `START_ROW` | 処理開始行 |
+| `END_ROW` | 処理終了行。空欄はシート末尾までを意味する |
+| `HEADLESS` | `false` にするとブラウザを表示して実行 |
+| `REQUEST_TIMEOUT_MS` | ページ取得と画像取得のタイムアウト |
+
+`.env`、`google-oauth-client.json`、`google-oauth-token.json` は `.gitignore` で除外されています。コミットしないでください。
 
 ## 実行方法
 
@@ -137,29 +144,138 @@ HEADLESS=false
 npm start
 ```
 
-実行時に `images` フォルダと `logs` フォルダが存在しない場合は自動作成されます。
+`images` フォルダと `logs` フォルダが存在しない場合は自動作成されます。
 
-## ステータス
+### 対象行の指定
 
-処理開始時はステータス列に `処理中` を書き込みます。
+`START_ROW` と `END_ROW` で処理対象行を絞ります。**`END_ROW` を空欄のまま実行しないでください。** 空欄はシート末尾までの全行が対象になります。
 
-正常に生成と書き戻しが終わると、いったん `正常終了` を含む結果を書き込み、その後 `完了` に更新します。
+行範囲は固定設定ではなく、**実行ごとに指定する運用値**として扱います。新規商品行を追加したら、その範囲だけを指定してください。
 
-エラーが発生した場合は `logs` フォルダへログを保存し、ステータス列に `エラー` を書き込みます。
+初回テストは1行だけを対象にします。
+
+```env
+START_ROW=2
+END_ROW=2
+```
+
+一括処理は、1行テストが成功してから行ってください。
+
+## スプレッドシート
+
+### 列構成
+
+| 列 | 内容 | 区分 |
+| --- | --- | --- |
+| A | 商品URL | 入力 |
+| B | ブランド名 | 入力 |
+| C | 備考欄 | 入力 |
+| D | 原価（GBP） | 出力 |
+| E | 商品名 | 出力 |
+| F | 商品説明・製品詳細 | 出力 |
+| G | 画像ファイル名 | 出力 |
+| H | ステータス | 出力 |
+| I | カテゴリー | 出力 |
+| J | 原価＋ショップ配送料（GBP） | 出力 |
+| K | 国際送料（GBP） | 出力 |
+| L | 出品価格（円） | 出力 |
+| M | 利益率 | 出力 |
+
+**A列、B列、C列は更新しません。** 顧客の入力列であり、A列はショップ判定、B列はブランド別利益率判定の唯一の根拠です。
+
+書き込みはD列からM列のみで、`values.batchUpdate` により列ごとに個別更新します。
+
+補足事項です。
+
+- D列はEUR建て商品の場合、GBPへ換算した値を書き込みます。
+- E列には生成されたタイトル候補を最大5件、改行で連結して書き込みます。
+- F列には商品コメントと製品詳細を空行区切りで書き込みます。
+- G列には保存画像のファイル名のみを昇順で書き込みます。画像URL、保存フォルダ、フルパスは書き込みません。
+- D列、J列、K列、L列、M列は数値として書き込みます。
+
+詳細は `docs/spreadsheet-spec.md` を参照してください。
+
+### `設定` シート
+
+価格計算の運用値は `設定` シートで管理します。A列が設定名、B列が設定値です。
+
+| 設定名 | 用途 |
+| --- | --- |
+| `GBP_JPY_RATE` | GBPから円への換算レート |
+| `BUYMA_FEE_RATE` | BUYMA手数料率 |
+| `CONSUMPTION_TAX` | 消費税率 |
+| `EUR_GBP_RATE` | EURからGBPへの換算レート。Zalandoなどのユーロ建て商品で使用 |
+
+これらはコードにハードコードしません。未設定、空欄、数値以外、不正な値の場合は価格計算を停止し、ステータスへエラーを追記します。
+
+`CONSUMPTION_TAX` は現在バリデーションのみに使われており、**総原価には加算されていません**。関税と消費税は常に0として扱われます。
+
+計算式、ブランド別利益率、ショップ送料、国際送料の全ルールは `docs/pricing-rules.md` を参照してください。
+
+## スクレイピング
+
+`src/scraper.js` がURLからショップを判定し、専用スクレイパーへ振り分けます。該当がない場合のみ汎用フォールバックを使います。
+
+現在の専用スクレイパーは7ショップです。
+
+| ファイル | 対象 |
+| --- | --- |
+| `src/shops/vivienneWestwood.js` | Vivienne Westwood（en-gb のみ） |
+| `src/shops/hobbsLondon.js` | Hobbs London |
+| `src/shops/zalando.js` | Zalando（ユーロ建て） |
+| `src/shops/harveyNichols.js` | Harvey Nichols |
+| `src/shops/selfPortrait.js` | Self-Portrait（サイズガイド取得あり） |
+| `src/shops/phaseEight.js` | Phase Eight |
+| `src/shops/selfridges.js` | Selfridges（自動取得は無効） |
+
+汎用フォールバックはJSON-LD、OGP、meta description、一般的な商品情報ラベル、`document.images` を順に参照します。**専用スクレイパーを持つショップで汎用フォールバックに頼らないでください。** 特に画像取得を `document.images` に後退させると、ロゴ・バナー・関連商品などの無関係な画像が混入します。取得できない場合は無関係な画像を集めるのではなく、`要確認：商品画像取得失敗` として停止させます。
+
+新しいショップに対応する場合は、`src/shops/` に専用ファイルを追加し、`src/scraper.js` のディスパッチャへ登録します。各ショップの抽出仕様と注意点は `docs/scraper-guide.md` を参照してください。
+
+Cloudflare、Akamai、その他のbot対策やアクセス制御を回避する実装は行いません。
 
 ## 画像保存ルール
 
-取得できた商品画像は `./images` に保存されます。
-
-ファイル名は以下の形式です。
+商品画像はスプレッドシートの行番号ごとのフォルダに保存されます。
 
 ```text
-01_main.jpg
-02_sub.jpg
-03_sub.jpg
+images/
+  43/
+    01_main.jpg
+    02_sub.jpg
+    03_sub.jpg
+    size_guide.jpg
 ```
 
-画像形式がPNG、WebP、GIFとして取得された場合は、実際の形式に合わせて拡張子が変わります。
-## 補足
+- ファイル名は `01_main` と `数字_sub` の形式です。
+- 画像がPNG、WebP、GIFとして取得された場合は、実際の形式に合わせて拡張子が変わります。
+- 保存前に、その行のフォルダから `01_main.*`、`数字_sub.*`、`size_guide.*` を削除します。手動で追加した他のファイルは残ります。
+- 同一画像はURLの正規化キーとダウンロード後のハッシュの2段階で重複排除します。
+- 解像度が低い画像は除外または警告の対象になります。
+- `size_guide.jpg` はSelf-PortraitのGarment measurement（単位センチメートル）のスクリーンショットです。G列のファイル名一覧には含まれません。
 
-商品ページのHTML構造はショップごとに異なるため、このツールはJSON-LD、OGP、meta description、一般的な商品情報ラベルを順番に参照して情報を取得します。特定サイトで取得精度を上げたい場合は、`src/scraper.js` にサイト別セレクタを追加してください。
+## ステータス
+
+H列のステータスは3系統です。
+
+| 系統 | 例 | 意味 |
+| --- | --- | --- |
+| 完了 | `完了` / `完了（サイズ情報なし）` | 正常終了 |
+| 要確認 | `要確認：カテゴリー判定` / `要確認：Selfridgesページ取得不可` | 処理は続行したが人の確認が必要 |
+| エラー | `エラー` / `エラー：GBP/JPY為替レートを確認してください` | 中断、または価格計算の失敗 |
+
+処理開始時に `処理中` を書き込みます。完了時は取得できなかった項目を判定し、`完了`、`完了（サイズ情報なし）`、または `要確認：…` を書き込みます。価格計算の警告とエラーは同じセルへ改行で追記されます。
+
+例外が発生した場合は `logs/error-row-{行番号}-{タイムスタンプ}.log` にログを保存し、H列に `エラー` を書き込みます。
+
+**H列が `完了` で始まる行は、次回実行時にスキップされます。** これにより再実行時の重複処理を防いでいます。
+
+ステータスの全一覧は `docs/known-issues.md` を参照してください。
+
+## 既知の制限
+
+- Selfridgesは自動取得の対象外です。常に `要確認：Selfridgesページ取得不可` で停止します。
+- Zalandoはbot対策やページ構造の検出失敗により取得できない場合があります。
+- ショップページは国、Cookie、ブラウザロケール、セッションによって表示内容が変わります。取得できなかった情報を推測で補完しません。
+
+詳細は `docs/known-issues.md` を参照してください。
