@@ -51,7 +51,21 @@ npm start                    # scrapes, calls OpenAI, and writes to the live she
 `npm start` runs `src/index.js`, which writes D-M columns on the live spreadsheet.
 Never run it for verification. See `Safety Rules For Verification`.
 
-Limit execution with `.env`:
+## Row Range Control
+
+`START_ROW` and `END_ROW` in `.env` decide which sheet rows are processed.
+An empty `END_ROW` means "process every row to the end of the sheet".
+
+Rules:
+
+- Never run the pipeline while `END_ROW` is empty.
+- Never assume a row range, and never treat an empty `END_ROW` as permission to
+  process everything. Ask the user which rows to process and wait for an explicit
+  answer before running anything.
+- Treat the range as a per-run setting, not a fixed configuration value. Set it to
+  the rows the user named for that run.
+- For a first test, set `START_ROW` and `END_ROW` to the same single row.
+- Re-confirm the range with the user whenever new product rows are added.
 
 ```env
 START_ROW=2
@@ -92,6 +106,8 @@ END_ROW=2
 - Do not bypass Cloudflare, Akamai, bot protection, or access controls.
 - Do not run bulk sheet updates before a one-row test.
 - Do not run `npm start` or `src/index.js` without explicit user permission.
+- Do not run the pipeline with an empty or assumed `END_ROW`. Confirm the target
+  rows with the user first. See `Row Range Control`.
 - Do not include execution, write, or delete operations in verification commands.
 - Do not commit or push unless explicitly requested.
 
