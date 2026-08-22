@@ -57,16 +57,33 @@ N holds an alternate product-page URL supplied by the client, used when the A-co
 
 `parseManualCost()` in `src/index.js` parses this string:
 
-- NFKC-normalizes the text (handles full-width digits).
-- Detects currency: `€` or `EUR` (case-insensitive) → EUR; `£` or `GBP` → GBP; otherwise defaults to GBP.
-- Strips currency symbols/codes, commas, and whitespace, then parses the remaining text as a number.
-- Returns `null` if the result is not a finite number greater than 0.
+- NFKC-normalizes the text (handles full-width digits and punctuation) and trims
+  whitespace, including a leading newline (observed in real sheet data).
+- Rejects unsupported currencies outright — `円`, `JPY`, `¥`, `USD`, `$` — returning
+  `null` rather than silently defaulting to GBP.
+- Detects currency: `€`/`EUR`/`EURO`/`ユーロ` → EUR; `£`/`GBP`/`ポンド`/`スターリング`
+  (also matches `英ポンド`/`UKポンド` as substrings) → GBP; otherwise defaults to GBP.
+- Rejects a minus sign outright, returning `null` (a negative cost is never valid).
+- Strips everything except digits, `.`, and `,`, then resolves which of `.`/`,` is
+  the decimal separator vs. the thousands separator (`parseLocalizedNumber()`):
+  - If both appear, whichever occurs **last** in the string is the decimal
+    separator (handles both `1,250.00` and `1.250,00` as 1250.00).
+  - If only one appears more than once, it is a thousands separator (`1.250.000` → 1250000).
+  - If only one appears exactly once, it is a thousands separator when followed by
+    exactly 3 digits to the end of the string (`1.250` → 1250), otherwise a decimal
+    separator (`1.25` → 1.25, `1250,00` → 1250.00).
+- Returns `null` if the parsed amount is not finite, or is below 5 — an amount that
+  low is treated as a decimal-separator misread (e.g. `1250` read as `1.25`) rather
+  than a real cost, since no product this project lists has a genuine cost under 5.
 
 Cost resolution order (`determineCost()` in `src/index.js`):
 
 1. If the A-column scrape produced a usable price/currency, it is converted to GBP and used. The D-column manual value is ignored in this case.
-2. Otherwise, `parseManualCost(manualCost)` is evaluated. A GBP value is used directly; a EUR value is converted using the `設定` sheet's `EUR_GBP_RATE` (same conversion used for scraped EUR prices).
-3. If neither source yields a usable value, cost remains unavailable (unchanged from prior behavior).
+2. Otherwise, `parseManualCost(manualCost)` is evaluated.
+   - A GBP value is used directly; a EUR value is converted using the `設定` sheet's `EUR_GBP_RATE` (same conversion used for scraped EUR prices).
+   - If column D was left empty, cost remains unavailable (unchanged from prior behavior) — no extra status note.
+   - If column D has a non-empty value that `parseManualCost()` could not parse (unsupported currency, misread amount, garbage text), the status gets `要確認：D列の原価表記を確認してください` instead of silently treating it as empty.
+3. If neither source yields a usable value, cost remains unavailable.
 
 The final GBP cost (whichever source it came from) is written back to column D, so a EUR manual entry is replaced by its GBP-converted number after the first run. Because the replaced value contains no currency marker, re-processing the row a second time parses it as a plain GBP number and does not convert it twice.
 

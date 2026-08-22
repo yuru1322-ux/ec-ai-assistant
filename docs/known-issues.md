@@ -66,6 +66,7 @@ Common completion statuses:
 - `要確認：A列の商品情報取得に失敗しました`
 - `要確認：原価はD列の手入力値（GBP）を使用しました`
 - `要確認：原価はD列の手入力値（EUR→GBP換算）を使用しました`
+- `要確認：D列の原価表記を確認してください`
 - `要確認：ショップ送料が暫定値（0）です`
 
 `appendStatusMessages()` suppresses duplicate reason text.

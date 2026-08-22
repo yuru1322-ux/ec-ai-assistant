@@ -206,8 +206,14 @@ const PROFIT_UPPER_LIMITS = {
 };
 
 const PROVISIONAL_SHIPPING_SHOPS = new Set([
-  'MONCLER',
   'MINOX BOUTIQUE'
+]);
+
+// Shops whose international shipping is a flat GBP amount regardless of category
+// or price bracket (client-confirmed operational rule), bypassing the normal
+// category/price-bucket lookup in INTERNATIONAL_SHIPPING_GBP entirely.
+const FLAT_INTERNATIONAL_SHIPPING_GBP = new Map([
+  ['MONCLER', 50]
 ]);
 
 function calculatePricing({ sourceUrl, brandName, costGbp, category, productData = {}, settings = {} }) {
@@ -230,9 +236,17 @@ function calculatePricing({ sourceUrl, brandName, costGbp, category, productData
   if (PROVISIONAL_SHIPPING_SHOPS.has(shopResult.shopName)) {
     warnings.push('要確認：ショップ送料が暫定値（0）です');
   }
+  const hasFlatInternationalShipping = FLAT_INTERNATIONAL_SHIPPING_GBP.has(shopResult.shopName);
 
   const categoryResult = resolveShippingCategory({ category, productData, sourceUrl });
-  blockingWarnings.push(...categoryResult.warnings);
+  if (hasFlatInternationalShipping) {
+    // Category is informational (I-column) only for these shops; a failed
+    // resolution must not block price calculation, since their source pages are
+    // often in a language CATEGORY_PATTERNS does not recognize (e.g. French).
+    blockingWarnings.push(...categoryResult.warnings.filter((warning) => warning !== '要確認：カテゴリー判定'));
+  } else {
+    blockingWarnings.push(...categoryResult.warnings);
+  }
   if (categoryResult.category) {
     console.log(`カテゴリ判定: category=${categoryResult.category} source=${categoryResult.source || 'unknown'} matched=${categoryResult.matched || 'unknown'}`);
   }
@@ -257,7 +271,9 @@ function calculatePricing({ sourceUrl, brandName, costGbp, category, productData
     blockingWarnings.push('要確認：ショップ送料未登録');
   }
 
-  const internationalShippingGbp = calculateInternationalShipping(normalizedCost, categoryResult.category);
+  const internationalShippingGbp = hasFlatInternationalShipping
+    ? FLAT_INTERNATIONAL_SHIPPING_GBP.get(shopResult.shopName)
+    : calculateInternationalShipping(normalizedCost, categoryResult.category);
   if (!Number.isFinite(internationalShippingGbp)) {
     blockingWarnings.push('要確認：カテゴリー判定');
   }
@@ -702,6 +718,7 @@ module.exports = {
   SHOP_DOMAINS,
   SHOP_SHIPPING_RULES,
   PROVISIONAL_SHIPPING_SHOPS,
+  FLAT_INTERNATIONAL_SHIPPING_GBP,
   INTERNATIONAL_SHIPPING_GBP,
   calculatePricing,
   calculateShopShipping,

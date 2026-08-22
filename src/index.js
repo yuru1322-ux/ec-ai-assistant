@@ -259,29 +259,68 @@ function getCostGbp(scraped, settings) {
   return convertToGbp(price, scraped.currency, settings);
 }
 
+const MANUAL_COST_UNSUPPORTED_CURRENCY_PATTERN = /円|JPY|¥|USD|\$/i;
+const MANUAL_COST_EUR_PATTERN = /€|EUR|EURO|ユーロ/i;
+const MANUAL_COST_GBP_PATTERN = /£|GBP|ポンド|スターリング/i;
+
+// Below this amount, the parse is almost certainly a decimal/thousands-separator
+// misread (e.g. "1.250,00" read as 1.25) rather than a genuine cost: no product
+// this project lists has a real GBP/EUR cost under 5. Reject rather than risk
+// silently using a near-zero cost.
+const MANUAL_COST_MIN_PLAUSIBLE_AMOUNT = 5;
+
 function parseManualCost(value) {
   const raw = String(value === undefined || value === null ? '' : value).trim();
   if (!raw) return null;
-  const normalized = raw.normalize('NFKC');
+  const normalized = raw.normalize('NFKC').trim();
+  if (!normalized) return null;
+
+  if (MANUAL_COST_UNSUPPORTED_CURRENCY_PATTERN.test(normalized)) return null;
+  // A minus sign would otherwise be silently stripped by the digit/separator
+  // extraction below, turning a negative entry into a positive amount.
+  if (normalized.includes('-')) return null;
 
   let currency = 'GBP';
-  if (/€/.test(normalized) || /EUR/i.test(normalized)) {
+  if (MANUAL_COST_EUR_PATTERN.test(normalized)) {
     currency = 'EUR';
-  } else if (/£/.test(normalized) || /GBP/i.test(normalized)) {
+  } else if (MANUAL_COST_GBP_PATTERN.test(normalized)) {
     currency = 'GBP';
   }
 
-  const numericText = normalized
-    .replace(/[€£]/g, '')
-    .replace(/EUR/gi, '')
-    .replace(/GBP/gi, '')
-    .replace(/,/g, '')
-    .replace(/\s+/g, '');
-
-  const amount = Number(numericText);
-  if (!Number.isFinite(amount) || amount <= 0) return null;
+  const numericText = normalized.replace(/[^\d.,]/g, '');
+  const amount = parseLocalizedNumber(numericText);
+  if (amount === null || !Number.isFinite(amount)) return null;
+  if (amount < MANUAL_COST_MIN_PLAUSIBLE_AMOUNT) return null;
 
   return { amount, currency };
+}
+
+function parseLocalizedNumber(text) {
+  if (!text) return null;
+  const hasDot = text.includes('.');
+  const hasComma = text.includes(',');
+
+  if (hasDot && hasComma) {
+    const decimalChar = text.lastIndexOf(',') > text.lastIndexOf('.') ? ',' : '.';
+    const thousandsChar = decimalChar === ',' ? '.' : ',';
+    const cleaned = text.split(thousandsChar).join('').replace(decimalChar, '.');
+    return finiteOrNull(Number(cleaned));
+  }
+
+  if (hasDot || hasComma) {
+    const sep = hasDot ? '.' : ',';
+    const parts = text.split(sep);
+    const lastPart = parts[parts.length - 1];
+    const isThousandsSeparator = parts.length > 2 || lastPart.length === 3;
+    const cleaned = isThousandsSeparator ? parts.join('') : text.replace(sep, '.');
+    return finiteOrNull(Number(cleaned));
+  }
+
+  return finiteOrNull(Number(text));
+}
+
+function finiteOrNull(num) {
+  return Number.isFinite(num) ? num : null;
 }
 
 function determineCost({ scraped, manualCostRaw, settings }) {
@@ -290,8 +329,12 @@ function determineCost({ scraped, manualCostRaw, settings }) {
     return { cost: scrapeResult.cost, warning: scrapeResult.warning, note: '' };
   }
 
+  const manualRawTrimmed = String(manualCostRaw === undefined || manualCostRaw === null ? '' : manualCostRaw).trim();
   const manual = parseManualCost(manualCostRaw);
   if (!manual) {
+    if (manualRawTrimmed) {
+      return { cost: '', warning: '要確認：D列の原価表記を確認してください', note: '' };
+    }
     return { cost: '', warning: scrapeResult.warning, note: '' };
   }
 

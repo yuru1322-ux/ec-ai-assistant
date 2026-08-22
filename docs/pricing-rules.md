@@ -162,7 +162,7 @@ Examples:
 - SELF PORTRAIT: GBP 0 fixed
 - SELFRIDGES: GBP 0 fixed, but Selfridges scraping is currently disabled by protection logic
 - PHASE EIGHT: free at GBP 150+, otherwise GBP 4
-- MONCLER: GBP 0 fixed — **provisional value**, actual shipping terms not yet confirmed
+- MONCLER: GBP 0 fixed — confirmed by the client (see "Flat International Shipping" below for its international-shipping treatment)
 - MINOX BOUTIQUE: GBP 0 fixed — **provisional value**. Free delivery over GBP 300 is confirmed from the site's own banner; the below-threshold fee is not yet confirmed
 
 Do not add or change shipping rules without user instruction.
@@ -170,9 +170,9 @@ Do not add or change shipping rules without user instruction.
 ### Provisional Shipping Warning
 
 `PROVISIONAL_SHIPPING_SHOPS` in `src/pricing.js` lists shops whose shipping rule is a
-placeholder rather than a confirmed value (currently `MONCLER` and `MINOX BOUTIQUE`).
-When the resolved shop is in this set, `calculatePricing()` adds a non-blocking
-warning:
+placeholder rather than a confirmed value (currently `MINOX BOUTIQUE` only — `MONCLER`
+was removed once the client confirmed its shipping terms). When the resolved shop is
+in this set, `calculatePricing()` adds a non-blocking warning:
 
 ```text
 要確認：ショップ送料が暫定値（0）です
@@ -181,6 +181,25 @@ warning:
 This does not stop price calculation. Once a shop's real shipping terms are known,
 update its `SHOP_SHIPPING_RULES` entry and remove it from `PROVISIONAL_SHIPPING_SHOPS`
 — the warning stops appearing automatically.
+
+### Flat International Shipping
+
+`FLAT_INTERNATIONAL_SHIPPING_GBP` in `src/pricing.js` lists shops whose international
+shipping is a single confirmed GBP amount regardless of category or price bracket,
+bypassing `INTERNATIONAL_SHIPPING_GBP` entirely:
+
+```text
+MONCLER: GBP 50 fixed (client-confirmed, applies to all French-sourced Moncler
+orders regardless of category or cost)
+```
+
+For these shops, a failed category resolution (`要確認：カテゴリー判定`) does **not**
+block price calculation — it is dropped instead of added to the blocking warnings.
+This exists because Moncler's official site (`moncler.com`) is in French
+(`doudoune`, `manteaux`, etc.), which `CATEGORY_PATTERNS` does not recognize, and
+category is not needed to determine shipping for these shops anyway. Column I
+(category) is populated only when resolution succeeds and is left blank otherwise;
+this does not affect J/K/L/M, which calculate identically either way.
 
 ## International Shipping
 
