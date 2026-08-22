@@ -259,7 +259,86 @@ function mergeScrapedData(genericData, shopData) {
   return merged;
 }
 
+function normalizeUrlForComparison(rawUrl) {
+  try {
+    const parsed = new URL(rawUrl);
+    const sortedParams = [...parsed.searchParams.entries()].sort(([a], [b]) => a.localeCompare(b));
+    const query = new URLSearchParams(sortedParams).toString();
+    return `${parsed.origin}${parsed.pathname}${query ? `?${query}` : ''}`;
+  } catch (_) {
+    return String(rawUrl || '');
+  }
+}
+
+async function scrapeImagesFromUrl(page, url) {
+  try {
+    if (isZalandoUrl(url)) {
+      const zalandoState = await inspectZalandoPage(page, url, config.browser.timeoutMs);
+      if (zalandoState.shouldStop) return [];
+      return await extractZalandoImages(page);
+    }
+    if (isSelfridgesUrl(url)) {
+      await inspectSelfridgesPage(page, url, config.browser.timeoutMs);
+      return [];
+    }
+
+    if (normalizeUrlForComparison(page.url()) !== normalizeUrlForComparison(url)) {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: config.browser.timeoutMs });
+      await page.waitForLoadState('networkidle', { timeout: config.browser.timeoutMs }).catch(() => {});
+    }
+
+    if (isPhaseEightUrl(url)) return await extractPhaseEightImages(page);
+    if (isSelfPortraitUrl(url)) return await extractSelfPortraitImages(page);
+    if (isHarveyNicholsUrl(url)) return await extractHarveyNicholsImages(page);
+    if (isVivienneWestwoodUrl(url)) return await extractVivienneWestwoodImages(page);
+    if (isHobbsLondonUrl(url)) return await extractHobbsLondonImages(page);
+
+    return await extractGenericImagesOnly(page);
+  } catch (_) {
+    return [];
+  }
+}
+
+async function extractGenericImagesOnly(page) {
+  const imageUrls = await page.evaluate(() => {
+    const imageUrls = Array.from(document.images)
+      .flatMap((img) => [
+        img.currentSrc,
+        img.src,
+        img.getAttribute('data-src'),
+        img.getAttribute('data-original'),
+        img.getAttribute('data-zoom-image')
+      ])
+      .filter(Boolean)
+      .map((src) => {
+        try {
+          return new URL(src, location.href).href;
+        } catch (_) {
+          return '';
+        }
+      })
+      .filter((src) => /^https?:\/\//.test(src));
+
+    const jsonLd = Array.from(document.querySelectorAll('script[type="application/ld+json"]'))
+      .map((script) => {
+        try {
+          return JSON.parse(script.textContent);
+        } catch (_) {
+          return null;
+        }
+      })
+      .flatMap((item) => Array.isArray(item) ? item : [item])
+      .find((item) => item && (item['@type'] === 'Product' || (Array.isArray(item['@type']) && item['@type'].includes('Product')))) || {};
+    const jsonImages = Array.isArray(jsonLd.image) ? jsonLd.image : [jsonLd.image].filter(Boolean);
+
+    return Array.from(new Set([...jsonImages, ...imageUrls]));
+  }).catch(() => []);
+
+  return uniq(imageUrls).map((url) => ({ url }));
+}
+
 module.exports = {
   scrapeProducts,
-  scrapeProductPage
+  scrapeProductPage,
+  scrapeImagesFromUrl
 };

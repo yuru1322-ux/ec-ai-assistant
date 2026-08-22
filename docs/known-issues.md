@@ -60,8 +60,22 @@ Common completion statuses:
 - `要確認：革靴の可能性があります。関税を手入力してください`
 - `要確認：Zalandoページ取得失敗`
 - `要確認：Selfridgesページ取得不可`
+- `要確認：情報取得元URL（N列）を確認してください`
+- `要確認：情報取得元URL（N列）から画像取得失敗`
+- `要確認：情報取得元URL（N列）の取得に失敗しました`
+- `要確認：A列の商品情報取得に失敗しました`
+- `要確認：原価はD列の手入力値（GBP）を使用しました`
+- `要確認：原価はD列の手入力値（EUR→GBP換算）を使用しました`
+- `要確認：ショップ送料が暫定値（0）です`
 
 `appendStatusMessages()` suppresses duplicate reason text.
+
+Status text must never contain a separator character (読点`、`, comma, or newline)
+or a raw error message/stack trace. `extractStatusReasons()` splits on `、`, `,`,
+and `\n` to detect duplicate reasons; embedding free-form error text (which commonly
+contains commas and newlines) breaks that dedup and can make an H-column cell grow
+unbounded across repeated runs. When an exception must be recorded, log it via
+`writeErrorLog()` and push a short fixed status string instead.
 
 ## Secrets
 

@@ -67,6 +67,8 @@ Unregistered brands add:
 
 ### 20% Zone
 
+All registered brands use a 20% margin zone (raised from the former 18% zone and most of the former 15% zone), except the 15% Zone brands below:
+
 - BOTTEGA VENETA
 - MAX MARA
 - RICK OWENS
@@ -82,18 +84,17 @@ Unregistered brands add:
 - PHASE EIGHT
 - MONCLER
 - ALAIA
-
-### 18% Zone
-
 - VIVIENNE WESTWOOD
 - SELF-PORTRAIT
 - SELF PORTRAIT
 - HOBBS LONDON
 - GUCCI
+- SISTER JANE
 
 ### 15% Zone
 
-- SISTER JANE
+These brands keep a required minimum margin of 15% (explicit exception):
+
 - JADED LONDON
 - ELIZABETH SCARLETT
 
@@ -161,8 +162,25 @@ Examples:
 - SELF PORTRAIT: GBP 0 fixed
 - SELFRIDGES: GBP 0 fixed, but Selfridges scraping is currently disabled by protection logic
 - PHASE EIGHT: free at GBP 150+, otherwise GBP 4
+- MONCLER: GBP 0 fixed — **provisional value**, actual shipping terms not yet confirmed
+- MINOX BOUTIQUE: GBP 0 fixed — **provisional value**. Free delivery over GBP 300 is confirmed from the site's own banner; the below-threshold fee is not yet confirmed
 
 Do not add or change shipping rules without user instruction.
+
+### Provisional Shipping Warning
+
+`PROVISIONAL_SHIPPING_SHOPS` in `src/pricing.js` lists shops whose shipping rule is a
+placeholder rather than a confirmed value (currently `MONCLER` and `MINOX BOUTIQUE`).
+When the resolved shop is in this set, `calculatePricing()` adds a non-blocking
+warning:
+
+```text
+要確認：ショップ送料が暫定値（0）です
+```
+
+This does not stop price calculation. Once a shop's real shipping terms are known,
+update its `SHOP_SHIPPING_RULES` entry and remove it from `PROVISIONAL_SHIPPING_SHOPS`
+— the warning stops appearing automatically.
 
 ## International Shipping
 
@@ -306,8 +324,7 @@ If profit rate is below the brand minimum:
 Upper-limit guide:
 
 - 20% zone: warning if over 22%
-- 18% zone: warning if over 20%
-- 15% zone: warning if over 17%
+- 15% zone (JADED LONDON, ELIZABETH SCARLETT): warning if over 17%
 
 Warning:
 

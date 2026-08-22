@@ -96,7 +96,7 @@ END_ROW=2
 
 ## Important Prohibitions
 
-- Do not edit A/B/C columns in Google Sheets.
+- Do not edit A/B/C/N columns in Google Sheets.
 - Do not commit `.env`, OAuth JSON, tokens, `images/`, `logs/`, or `node_modules/`.
 - Do not expose API keys, OAuth secrets, refresh tokens, or sheet credentials.
 - Do not infer missing product facts.
@@ -152,7 +152,7 @@ The active sheet columns are:
 A 商品URL
 B ブランド名
 C 備考欄
-D 原価（GBP）
+D 原価（GBP）※入出力兼用（下記参照）
 E 商品名
 F 商品説明
 G 画像ファイル名
@@ -162,8 +162,34 @@ J 原価＋ショップ配送料（GBP）
 K 国際送料（GBP）
 L 出品価格（円）
 M 利益率
+N 情報取得元URL
 
 The `設定` tab provides runtime settings such as `GBP_JPY_RATE`, `BUYMA_FEE_RATE`, `CONSUMPTION_TAX`, and `EUR_GBP_RATE`.
+
+### D列（原価）の入出力兼用について
+
+D列はプログラムが原価（GBP）を書き込む出力列であると同時に、A列サイトから価格が
+取得できない場合にユーザーが原価を手入力する入力列でもあります。
+
+- A列から価格が取得できた場合は、その値を優先し、D列の手入力値は無視します。
+- A列から価格が取得できない場合のみ、D列の手入力値（GBPまたはEUR）を読み取り、
+  GBPに換算して使用します。
+- 採用した原価はGBP換算後の数値としてD列に書き戻されます。EUR入力は初回実行後、
+  GBPの数値に置き換わります。
+
+### N列（情報取得元URL）について
+
+N列はA/B/C列と同様の**入力列**です。プログラムはN列に書き込みません。
+
+- A列サイト（Moncler公式など）が画像利用を許可していない、またはbot対策で
+  取得不能な場合に、クライアントが共有する別ECサイトの商品ページURLを入力します。
+- N列にURLがある行は、A列サイトからの画像取得を行わず、N列URLのページから
+  画像を取得します。
+- N列URLの**価格は絶対に原価として使用しません**。N列は別の店の商品ページであり、
+  そこに表示される価格はその店の売価であって仕入れ原価ではないためです。価格・通貨は
+  常にA列由来の値のみを使用します。
+- ショップ送料・国際送料の判定（ショップ名の解決）は必ずA列URLで行います。
+  N列URLでショップ判定してはいけません。
 
 ## BUYMA Generation
 

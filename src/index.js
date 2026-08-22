@@ -5,7 +5,7 @@ const Status = require('./status');
 const { ensureDir } = require('./utils');
 const { writeErrorLog } = require('./logger');
 const { getSheetsClient, readProducts, readSettings, updateStatus, writeResult } = require('./sheets');
-const { scrapeProductPage } = require('./scraper');
+const { scrapeProductPage, scrapeImagesFromUrl } = require('./scraper');
 const { downloadImages, saveSizeGuideImage } = require('./images');
 const { generateBuymaContent } = require('./openaiClient');
 const { calculatePricing } = require('./pricing');
@@ -40,18 +40,91 @@ async function processProduct({ browser, sheets, settings, product }) {
   page.setDefaultTimeout(config.browser.timeoutMs);
 
   try {
-    const scraped = await scrapeProductPage(page, product.url);
-    if (scraped.shouldStop) {
-      await updateStatus(sheets, product.rowNumber, scraped.status);
-      console.log(`要確認: ${product.rowNumber}行目 ${product.url} ${scraped.reason || scraped.status}`);
-      return;
+    const infoSourceUrlRaw = String(product.infoSourceUrl || '').trim();
+    const extraNotes = [];
+
+    let scraped;
+    try {
+      scraped = await scrapeProductPage(page, product.url);
+    } catch (error) {
+      if (!infoSourceUrlRaw) throw error;
+      await writeErrorLog(product.rowNumber, product.url, error).catch(() => {});
+      console.error(`A列取得エラー: ${product.rowNumber}行目 ${product.url}`, error.message);
+      extraNotes.push('要確認：A列の商品情報取得に失敗しました');
+      scraped = {};
     }
 
-    const brand = scraped.brand || product.brand;
-    const productName = scraped.name || '商品名未取得';
-    const imagePaths = await downloadImages(page, scraped.imageSources || scraped.imageUrls || [], brand, productName, product.rowNumber);
-    if (scraped.sizeGuideScreenshotBase64) {
-      const sizeGuidePath = await saveSizeGuideImage(product.rowNumber, scraped.sizeGuideScreenshotBase64);
+    if (scraped.shouldStop) {
+      if (!infoSourceUrlRaw) {
+        await updateStatus(sheets, product.rowNumber, scraped.status);
+        console.log(`要確認: ${product.rowNumber}行目 ${product.url} ${scraped.reason || scraped.status}`);
+        return;
+      }
+      extraNotes.push(scraped.status || scraped.reason || '要確認：A列の商品情報取得に失敗しました');
+      scraped = {};
+    }
+
+    let infoSourceUrl = '';
+    let infoSourceInvalid = false;
+    if (infoSourceUrlRaw) {
+      try {
+        new URL(infoSourceUrlRaw);
+        infoSourceUrl = infoSourceUrlRaw;
+      } catch (_) {
+        infoSourceInvalid = true;
+        extraNotes.push('要確認：情報取得元URL（N列）を確認してください');
+      }
+    }
+
+    // A single page instance for the N-column URL is reused for both product-data
+    // scraping and image extraction below, so the URL is only ever loaded once.
+    let nScraped = null;
+    let infoPage = null;
+    if (infoSourceUrl) {
+      infoPage = await browser.newPage();
+      infoPage.setDefaultTimeout(config.browser.timeoutMs);
+      try {
+        const infoScraped = await scrapeProductPage(infoPage, infoSourceUrl);
+        if (infoScraped.shouldStop) {
+          extraNotes.push(infoScraped.status || infoScraped.reason || '要確認：情報取得元URL（N列）の商品情報取得に失敗しました');
+        } else {
+          nScraped = infoScraped;
+        }
+      } catch (error) {
+        await writeErrorLog(product.rowNumber, infoSourceUrl, error).catch(() => {});
+        console.error(`N列取得エラー: ${product.rowNumber}行目 ${infoSourceUrl}`, error.message);
+        extraNotes.push('要確認：情報取得元URL（N列）の取得に失敗しました');
+      }
+    }
+
+    const merged = mergeSourceData(scraped, nScraped);
+
+    const brand = merged.brand || product.brand;
+    const productName = merged.name || '商品名未取得';
+
+    let imageSources;
+    let downloadPage = page;
+    if (infoSourceUrlRaw) {
+      if (infoSourceUrl && infoPage) {
+        imageSources = await scrapeImagesFromUrl(infoPage, infoSourceUrl);
+        downloadPage = infoPage;
+      } else {
+        imageSources = [];
+      }
+    } else {
+      imageSources = scraped.imageSources || scraped.imageUrls || [];
+    }
+
+    let imagePaths;
+    try {
+      imagePaths = await downloadImages(downloadPage, imageSources, brand, productName, product.rowNumber);
+    } finally {
+      if (infoPage) {
+        await infoPage.close();
+      }
+    }
+    if (merged.sizeGuideScreenshotBase64) {
+      const sizeGuidePath = await saveSizeGuideImage(product.rowNumber, merged.sizeGuideScreenshotBase64);
       if (sizeGuidePath) console.log(`サイズガイド保存: ${sizeGuidePath}`);
     }
     const imageFileNames = getImageFileNames(imagePaths);
@@ -60,17 +133,19 @@ async function processProduct({ browser, sheets, settings, product }) {
       sourceUrl: product.url,
       sheetBrand: product.brand,
       scraped: {
-        ...scraped,
+        ...merged,
         brand,
         name: productName
       },
       downloadedImagePaths: imagePaths
     });
 
-    const costResult = getCostGbp(scraped, settings);
+    const costResult = determineCost({ scraped: merged, manualCostRaw: product.manualCost, settings });
+    if (costResult.note) extraNotes.push(costResult.note);
+
     const pricing = costResult.warning
       ? {
-        category: scraped.category || '',
+        category: merged.category || '',
         warnings: [costResult.warning],
         errors: [],
         canCalculate: false
@@ -79,11 +154,13 @@ async function processProduct({ browser, sheets, settings, product }) {
         sourceUrl: product.url,
         brandName: product.brand,
         costGbp: costResult.cost,
-        category: scraped.category,
-        productData: scraped,
+        category: merged.category,
+        productData: merged,
         settings
       });
-    const finalStatus = appendStatusMessages(getCompletionStatus(scraped), [
+    const imageStatus = resolveImageStatus(imageFileNames.length, infoSourceUrl, infoSourceInvalid);
+    const finalStatus = appendStatusMessages(getCompletionStatus(merged, imageStatus), [
+      ...extraNotes,
       ...pricing.warnings,
       ...pricing.errors
     ]);
@@ -130,26 +207,107 @@ function hasValue(value) {
   return value !== undefined && value !== null && String(value).trim() !== '';
 }
 
+const MERGE_PREFER_N_FIELDS = [
+  'name', 'brand', 'description', 'features', 'composition', 'material',
+  'color', 'colorSource', 'dimensions', 'productCode', 'sku', 'mpn',
+  'category', 'fastening', 'hardware', 'decoration', 'pockets', 'lining',
+  'countryOfOrigin', 'weight', 'modelInfo', 'careInstructions'
+];
+
+function mergeSourceData(aScraped, nScraped) {
+  const merged = { ...(aScraped || {}) };
+  if (!nScraped) return merged;
+  for (const field of MERGE_PREFER_N_FIELDS) {
+    if (hasValue(nScraped[field])) {
+      merged[field] = nScraped[field];
+    }
+  }
+  // price/currency and image/size-guide fields are intentionally excluded from
+  // MERGE_PREFER_N_FIELDS: the N-column page is a different shop's listing, so its
+  // price is a resale price (not our cost) and its images/size-guide screenshot must
+  // never be used. These always come from the A-column scrape only.
+  merged.price = aScraped ? aScraped.price : undefined;
+  merged.currency = aScraped ? aScraped.currency : undefined;
+  return merged;
+}
+
 function formatCost(scraped) {
   if (!hasValue(scraped.price)) return '';
   const price = Number(scraped.price);
   return Number.isFinite(price) ? price : '';
 }
 
-function getCostGbp(scraped, settings) {
-  const price = formatCost(scraped);
+function convertToGbp(price, currency, settings) {
   if (!hasValue(price)) return { cost: '', warning: '' };
-  const currency = String(scraped.currency || '').trim().toUpperCase();
-  if (!currency) return { cost: '', warning: '要確認：通貨判定失敗' };
-  if (currency === 'GBP') return { cost: price, warning: '' };
-  if (currency === 'EUR') {
+  const numericPrice = Number(price);
+  if (!Number.isFinite(numericPrice)) return { cost: '', warning: '' };
+  const normalizedCurrency = String(currency || '').trim().toUpperCase();
+  if (!normalizedCurrency) return { cost: '', warning: '要確認：通貨判定失敗' };
+  if (normalizedCurrency === 'GBP') return { cost: numericPrice, warning: '' };
+  if (normalizedCurrency === 'EUR') {
     const eurGbpRate = settingNumber(settings, 'EUR_GBP_RATE');
     if (!Number.isFinite(eurGbpRate) || eurGbpRate <= 0) {
       return { cost: '', warning: '要確認：EUR/GBP為替レートを確認してください' };
     }
-    return { cost: roundNumber(price * eurGbpRate, 2), warning: '' };
+    return { cost: roundNumber(numericPrice * eurGbpRate, 2), warning: '' };
   }
-  return { cost: '', warning: `要確認：通貨換算が必要（${currency}→GBP）` };
+  return { cost: '', warning: `要確認：通貨換算が必要（${normalizedCurrency}→GBP）` };
+}
+
+function getCostGbp(scraped, settings) {
+  const price = formatCost(scraped);
+  return convertToGbp(price, scraped.currency, settings);
+}
+
+function parseManualCost(value) {
+  const raw = String(value === undefined || value === null ? '' : value).trim();
+  if (!raw) return null;
+  const normalized = raw.normalize('NFKC');
+
+  let currency = 'GBP';
+  if (/€/.test(normalized) || /EUR/i.test(normalized)) {
+    currency = 'EUR';
+  } else if (/£/.test(normalized) || /GBP/i.test(normalized)) {
+    currency = 'GBP';
+  }
+
+  const numericText = normalized
+    .replace(/[€£]/g, '')
+    .replace(/EUR/gi, '')
+    .replace(/GBP/gi, '')
+    .replace(/,/g, '')
+    .replace(/\s+/g, '');
+
+  const amount = Number(numericText);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+
+  return { amount, currency };
+}
+
+function determineCost({ scraped, manualCostRaw, settings }) {
+  const scrapeResult = getCostGbp(scraped, settings);
+  if (hasValue(scrapeResult.cost)) {
+    return { cost: scrapeResult.cost, warning: scrapeResult.warning, note: '' };
+  }
+
+  const manual = parseManualCost(manualCostRaw);
+  if (!manual) {
+    return { cost: '', warning: scrapeResult.warning, note: '' };
+  }
+
+  if (manual.currency === 'GBP') {
+    return { cost: manual.amount, warning: '', note: '要確認：原価はD列の手入力値（GBP）を使用しました' };
+  }
+
+  const eurGbpRate = settingNumber(settings, 'EUR_GBP_RATE');
+  if (!Number.isFinite(eurGbpRate) || eurGbpRate <= 0) {
+    return { cost: '', warning: '要確認：EUR/GBP為替レートを確認してください', note: '' };
+  }
+  return {
+    cost: roundNumber(manual.amount * eurGbpRate, 2),
+    warning: '',
+    note: '要確認：原価はD列の手入力値（EUR→GBP換算）を使用しました'
+  };
 }
 
 function settingNumber(settings, key) {
@@ -205,7 +363,15 @@ function extractStatusReasons(message) {
     .filter(Boolean);
 }
 
-function getCompletionStatus(scraped) {
+function resolveImageStatus(imageFileNameCount, infoSourceUrl, infoSourceInvalid) {
+  if (imageFileNameCount > 0) return { missingMessage: '' };
+  // An invalid N-column URL is already reported separately; avoid a redundant note.
+  if (infoSourceInvalid) return { missingMessage: '' };
+  if (infoSourceUrl) return { missingMessage: '情報取得元URL（N列）から画像取得失敗' };
+  return { missingMessage: '商品画像取得失敗' };
+}
+
+function getCompletionStatus(scraped, imageStatus) {
   const checks = [
     ['商品名取得失敗', scraped.name],
     ['商品説明取得失敗', scraped.description],
@@ -213,12 +379,15 @@ function getCompletionStatus(scraped) {
     ['素材取得失敗', scraped.composition || scraped.material],
     ['カラー取得失敗', scraped.color],
     ['価格取得失敗', scraped.price],
-    ['商品コード取得失敗', scraped.productCode || scraped.sku || scraped.mpn],
-    ['商品画像取得失敗', scraped.imageSources]
+    ['商品コード取得失敗', scraped.productCode || scraped.sku || scraped.mpn]
   ];
   const missing = checks
     .filter(([, value]) => !hasValue(value))
     .map(([message]) => message);
+
+  if (imageStatus && imageStatus.missingMessage) {
+    missing.push(imageStatus.missingMessage);
+  }
 
   if (missing.length > 0) {
     return `要確認：${missing.join('、')}`;

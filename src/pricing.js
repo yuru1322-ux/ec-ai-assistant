@@ -18,23 +18,18 @@ const BRAND_MARGIN_ZONES = [
       'GHOSPELL',
       'PHASE EIGHT',
       'MONCLER',
-      'ALAIA'
-    ]
-  },
-  {
-    marginRate: 0.18,
-    brands: [
+      'ALAIA',
       'VIVIENNE WESTWOOD',
       'SELF-PORTRAIT',
       'SELF PORTRAIT',
       'HOBBS LONDON',
-      'GUCCI'
+      'GUCCI',
+      'SISTER JANE'
     ]
   },
   {
     marginRate: 0.15,
     brands: [
-      'SISTER JANE',
       'JADED LONDON',
       'ELIZABETH SCARLETT'
     ]
@@ -74,6 +69,8 @@ const SHOP_DOMAINS = {
   'ln-cc.com': 'LN-CC',
   'miinto.co.uk': 'MIINTO',
   'miinto.com': 'MIINTO',
+  'minoxboutique.co.uk': 'MINOX BOUTIQUE',
+  'moncler.com': 'MONCLER',
   'mytheresa.com': 'MYTHERESA',
   'mrporter.com': 'MR PORTER',
   'marksandspencer.com': 'M&S',
@@ -143,6 +140,11 @@ const SHOP_SHIPPING_RULES = {
   LIBERTY: { freeThreshold: 100, below: 6 },
   'LN-CC': { fixed: 7 },
   MIINTO: { fixed: 6 },
+  // 暫定値。実際の送料条件が判明したら更新すること
+  // MINOX BOUTIQUE は £300以上で送料無料、未満の額は未確認
+  'MINOX BOUTIQUE': { fixed: 0 },
+  // 暫定値。実際の送料条件が判明したら更新すること
+  MONCLER: { fixed: 0 },
   MYTHERESA: { freeThreshold: 300, below: 8 },
   'MR PORTER': { freeThreshold: 200, below: 7 },
   'M&S': { freeThreshold: 60, below: 4 },
@@ -200,9 +202,13 @@ const INTERNATIONAL_SHIPPING_GBP = {
 
 const PROFIT_UPPER_LIMITS = {
   0.20: 0.22,
-  0.18: 0.20,
   0.15: 0.17
 };
+
+const PROVISIONAL_SHIPPING_SHOPS = new Set([
+  'MONCLER',
+  'MINOX BOUTIQUE'
+]);
 
 function calculatePricing({ sourceUrl, brandName, costGbp, category, productData = {}, settings = {} }) {
   const warnings = [];
@@ -221,6 +227,9 @@ function calculatePricing({ sourceUrl, brandName, costGbp, category, productData
 
   const shopResult = resolveShop(sourceUrl);
   blockingWarnings.push(...shopResult.warnings);
+  if (PROVISIONAL_SHIPPING_SHOPS.has(shopResult.shopName)) {
+    warnings.push('要確認：ショップ送料が暫定値（0）です');
+  }
 
   const categoryResult = resolveShippingCategory({ category, productData, sourceUrl });
   blockingWarnings.push(...categoryResult.warnings);
@@ -692,6 +701,7 @@ module.exports = {
   BRAND_MARGIN_ZONES,
   SHOP_DOMAINS,
   SHOP_SHIPPING_RULES,
+  PROVISIONAL_SHIPPING_SHOPS,
   INTERNATIONAL_SHIPPING_GBP,
   calculatePricing,
   calculateShopShipping,

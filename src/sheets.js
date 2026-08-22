@@ -62,7 +62,7 @@ function getOAuthClient() {
 
 async function readProducts(sheets) {
   const endRow = config.google.endRow || '';
-  const range = `${config.google.sheetName}!A${config.google.startRow}:M${endRow}`;
+  const range = `${config.google.sheetName}!A${config.google.startRow}:N${endRow}`;
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: config.google.sheetId,
     range
@@ -74,7 +74,9 @@ async function readProducts(sheets) {
       url: row[0] || '',
       brand: row[1] || '',
       note: row[2] || '',
-      status: row[7] || ''
+      manualCost: row[3] || '',
+      status: row[7] || '',
+      infoSourceUrl: row[13] || ''
     }))
     .filter((product) => product.url && !product.status.startsWith('完了'));
 }
