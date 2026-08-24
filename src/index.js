@@ -10,6 +10,8 @@ const { downloadImages, saveSizeGuideImage } = require('./images');
 const { generateBuymaContent } = require('./openaiClient');
 const { calculatePricing } = require('./pricing');
 
+const A_COLUMN_ACCESS_FAILURE_STATUS = '要確認：A列の商品情報取得に失敗しました';
+
 async function main() {
   await ensureDir(config.imagesDir);
   await ensureDir(config.logsDir);
@@ -50,7 +52,7 @@ async function processProduct({ browser, sheets, settings, product }) {
       if (!infoSourceUrlRaw) throw error;
       await writeErrorLog(product.rowNumber, product.url, error).catch(() => {});
       console.error(`A列取得エラー: ${product.rowNumber}行目 ${product.url}`, error.message);
-      extraNotes.push('要確認：A列の商品情報取得に失敗しました');
+      extraNotes.push(A_COLUMN_ACCESS_FAILURE_STATUS);
       scraped = {};
     }
 
@@ -60,7 +62,7 @@ async function processProduct({ browser, sheets, settings, product }) {
         console.log(`要確認: ${product.rowNumber}行目 ${product.url} ${scraped.reason || scraped.status}`);
         return;
       }
-      extraNotes.push(scraped.status || scraped.reason || '要確認：A列の商品情報取得に失敗しました');
+      extraNotes.push(scraped.status || scraped.reason || A_COLUMN_ACCESS_FAILURE_STATUS);
       scraped = {};
     }
 
@@ -159,7 +161,7 @@ async function processProduct({ browser, sheets, settings, product }) {
         settings
       });
     const imageStatus = resolveImageStatus(imageFileNames.length, infoSourceUrl, infoSourceInvalid);
-    const finalStatus = appendStatusMessages(getCompletionStatus(merged, imageStatus), [
+    const finalStatus = appendStatusMessages(getCompletionStatus(merged, imageStatus, scraped), [
       ...extraNotes,
       ...pricing.warnings,
       ...pricing.errors
@@ -414,7 +416,18 @@ function resolveImageStatus(imageFileNameCount, infoSourceUrl, infoSourceInvalid
   return { missingMessage: '商品画像取得失敗' };
 }
 
-function getCompletionStatus(scraped, imageStatus) {
+function getCompletionStatus(scraped, imageStatus, aColumnScraped) {
+  // A soft failure (HTTP 200 with a bot-challenge page, a region redirect to
+  // an unrelated page, etc.) can leave every A-column field empty without
+  // ever setting shouldStop. Detect that by result (name/price/images all
+  // empty on the A-column scrape itself) rather than by matching specific
+  // causes. Skipped when the N-column already supplied a usable name, since
+  // that row is still workable and the A-column failure is already noted
+  // separately via extraNotes.
+  if (isAColumnResultEmpty(aColumnScraped) && !hasValue(scraped.name)) {
+    return A_COLUMN_ACCESS_FAILURE_STATUS;
+  }
+
   const checks = [
     ['商品名取得失敗', scraped.name],
     ['商品説明取得失敗', scraped.description],
@@ -439,6 +452,14 @@ function getCompletionStatus(scraped, imageStatus) {
     return '完了（サイズ情報なし）';
   }
   return Status.COMPLETE;
+}
+
+function isAColumnResultEmpty(aColumnScraped) {
+  if (!aColumnScraped) return true;
+  const hasName = hasValue(aColumnScraped.name);
+  const hasPrice = hasValue(aColumnScraped.price);
+  const hasImages = hasValue(aColumnScraped.imageUrls) || hasValue(aColumnScraped.imageSources);
+  return !hasName && !hasPrice && !hasImages;
 }
 
 function hasUsableDimensions(scraped) {

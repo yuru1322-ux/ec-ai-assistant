@@ -41,6 +41,26 @@ const {
   isSelfridgesUrl,
   inspectSelfridgesPage
 } = require('./shops/selfridges');
+const {
+  isTessabitUrl,
+  extractTessabitImages
+} = require('./shops/tessabit');
+
+const GENERIC_ACCESS_FAILURE_STATUS = '要確認：A列の商品情報取得に失敗しました';
+// Exact status codes treated as a block. 5xx is handled separately as a
+// range by isGenericBlockedStatus() below, not listed here individually.
+const GENERIC_BLOCKED_HTTP_STATUSES = new Set([403, 404]);
+
+const GENERIC_IMAGE_EXCLUDE_KEYWORDS = [
+  'logo', 'icon', 'sprite', 'banner', 'placeholder', 'cookie', 'consent',
+  'onetrust', 'payment', 'badge', 'social', 'flag', 'avatar', 'spinner',
+  'loader', 'newsletter', 'swatch'
+];
+const GENERIC_IMAGE_MIN_WIDTH = 400;
+const GENERIC_IMAGE_MAX_COUNT = 15;
+// Below this count, JSON-LD/og:image alone are not treated as a complete
+// gallery and DOM collection still runs to fill in the rest.
+const GENERIC_IMAGE_SUFFICIENT_COUNT = 3;
 
 async function scrapeProducts(products) {
   const browser = await chromium.launch({ headless: config.browser.headless });
@@ -82,8 +102,8 @@ async function scrapeProductPage(page, url) {
   } else if (isSelfridgesUrl(url)) {
     return inspectSelfridgesPage(page, url, config.browser.timeoutMs);
   } else {
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: config.browser.timeoutMs });
-    await page.waitForLoadState('networkidle', { timeout: config.browser.timeoutMs }).catch(() => {});
+    const accessState = await inspectGenericAccess(page, url, config.browser.timeoutMs);
+    if (accessState.shouldStop) return accessState;
   }
   const isVivienne = isVivienneWestwoodUrl(url);
   const isHobbs = isHobbsLondonUrl(url);
@@ -142,7 +162,7 @@ async function scrapeProductPage(page, url) {
     ? await extractVivienneWestwoodImages(page)
     : isHobbs
       ? await extractHobbsLondonImages(page)
-      : null;
+      : await extractGenericImages(page);
   const shopProductDetails = isVivienne
     ? await extractVivienneWestwoodProductDetails(page, url)
     : isHobbs
@@ -185,24 +205,6 @@ async function scrapeProductPage(page, url) {
       return '';
     };
 
-    const imageUrls = Array.from(document.images)
-      .flatMap((img) => [
-        img.currentSrc,
-        img.src,
-        img.getAttribute('data-src'),
-        img.getAttribute('data-original'),
-        img.getAttribute('data-zoom-image')
-      ])
-      .filter(Boolean)
-      .map((src) => {
-        try {
-          return new URL(src, location.href).href;
-        } catch (_) {
-          return '';
-        }
-      })
-      .filter((src) => /^https?:\/\//.test(src));
-
     const jsonLd = Array.from(document.querySelectorAll('script[type="application/ld+json"]'))
       .map((script) => {
         try {
@@ -215,7 +217,6 @@ async function scrapeProductPage(page, url) {
       .find((item) => item && (item['@type'] === 'Product' || (Array.isArray(item['@type']) && item['@type'].includes('Product')))) || {};
 
     const jsonBrand = typeof jsonLd.brand === 'string' ? jsonLd.brand : clean(jsonLd.brand && jsonLd.brand.name);
-    const jsonImages = Array.isArray(jsonLd.image) ? jsonLd.image : [jsonLd.image].filter(Boolean);
 
     return {
       name: clean(jsonLd.name) || textBySelector(['h1', '[class*="product"][class*="name"]', '[class*="item"][class*="name"]']) || meta(['meta[property="og:title"]', 'meta[name="twitter:title"]']),
@@ -223,13 +224,10 @@ async function scrapeProductPage(page, url) {
       description: clean(jsonLd.description) || meta(['meta[name="description"]', 'meta[property="og:description"]']) || textBySelector(['[class*="description"]', '[class*="detail"]']),
       color: labeledText(['カラー', '色', 'Color', 'color']),
       material: labeledText(['素材', 'Material', 'material']),
-      category: labeledText(['カテゴリ', 'カテゴリー', 'Category', 'category']) || meta(['meta[property="product:category"]']),
-      imageUrls: Array.from(new Set([...jsonImages, ...imageUrls]))
+      category: labeledText(['カテゴリ', 'カテゴリー', 'Category', 'category']) || meta(['meta[property="product:category"]'])
     };
   }).then((data) => {
-    const imageUrls = shopImageSources
-      ? shopImageSources.map((image) => image.url)
-      : uniq(data.imageUrls);
+    const imageUrls = shopImageSources.map((image) => image.url);
     const mergedData = shopProductDetails
       ? mergeScrapedData(data, shopProductDetails)
       : data;
@@ -237,7 +235,7 @@ async function scrapeProductPage(page, url) {
     return {
       ...mergedData,
       imageUrls,
-      imageSources: shopImageSources || imageUrls.map((imageUrl) => ({ url: imageUrl }))
+      imageSources: shopImageSources
     };
   });
 }
@@ -292,49 +290,211 @@ async function scrapeImagesFromUrl(page, url) {
     if (isHarveyNicholsUrl(url)) return await extractHarveyNicholsImages(page);
     if (isVivienneWestwoodUrl(url)) return await extractVivienneWestwoodImages(page);
     if (isHobbsLondonUrl(url)) return await extractHobbsLondonImages(page);
+    if (isTessabitUrl(url)) return await extractTessabitImages(page);
 
-    return await extractGenericImagesOnly(page);
+    return await extractGenericImages(page);
   } catch (_) {
     return [];
   }
 }
 
-async function extractGenericImagesOnly(page) {
-  const imageUrls = await page.evaluate(() => {
-    const imageUrls = Array.from(document.images)
+async function inspectGenericAccess(page, url, timeoutMs) {
+  const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+  const status = response ? response.status() : 0;
+  if (isGenericBlockedStatus(status)) {
+    return {
+      shouldStop: true,
+      status: GENERIC_ACCESS_FAILURE_STATUS,
+      reason: `HTTP ${status}`
+    };
+  }
+  await page.waitForLoadState('networkidle', { timeout: timeoutMs }).catch(() => {});
+  return { shouldStop: false };
+}
+
+function isGenericBlockedStatus(status) {
+  if (GENERIC_BLOCKED_HTTP_STATUSES.has(status)) return true;
+  return status >= 500 && status < 600;
+}
+
+// Shared generic-fallback image extraction, used by both scrapeProductPage()
+// (A-column) and scrapeImagesFromUrl() (N-column) for any shop without a
+// dedicated scraper. Priority: JSON-LD Product.image, then og:image, then a
+// filtered/capped scan of document.images. See docs/scraper-guide.md.
+async function extractGenericImages(page) {
+  const collected = await page.evaluate((keywords) => {
+    const absoluteUrl = (value) => {
+      if (!value) return '';
+      try {
+        return new URL(value, location.href).href;
+      } catch (_) {
+        return '';
+      }
+    };
+    const isUsableUrl = (url) => {
+      if (!url) return false;
+      if (url.startsWith('data:')) return false;
+      if (/\.svg(\?|#|$)/i.test(url)) return false;
+      return /^https?:\/\//.test(url);
+    };
+    const isExcludedByKeyword = (url) => {
+      const lower = url.toLowerCase();
+      return keywords.some((keyword) => lower.includes(keyword));
+    };
+    const bestFromSrcset = (value) => {
+      if (!value) return '';
+      const candidates = value.split(',')
+        .map((part) => {
+          const trimmed = part.trim();
+          const spaceIndex = trimmed.search(/\s/);
+          const candidateUrl = spaceIndex === -1 ? trimmed : trimmed.slice(0, spaceIndex);
+          const descriptor = spaceIndex === -1 ? '' : trimmed.slice(spaceIndex + 1).trim();
+          const width = /w$/i.test(descriptor) ? Number(descriptor.replace(/w$/i, '')) : 0;
+          const density = /x$/i.test(descriptor) ? Number(descriptor.replace(/x$/i, '')) : 0;
+          return { candidateUrl, score: width || density };
+        })
+        .filter((candidate) => candidate.candidateUrl)
+        .sort((a, b) => b.score - a.score);
+      return candidates.length ? candidates[0].candidateUrl : '';
+    };
+
+    const jsonLd = Array.from(document.querySelectorAll('script[type="application/ld+json"]'))
+      .map((script) => {
+        try {
+          return JSON.parse(script.textContent || '{}');
+        } catch (_) {
+          return null;
+        }
+      })
+      .filter(Boolean)
+      .flatMap((item) => Array.isArray(item) ? item : (Array.isArray(item['@graph']) ? item['@graph'] : [item]))
+      .find((item) => item && (item['@type'] === 'Product' || (Array.isArray(item['@type']) && item['@type'].includes('Product')))) || {};
+
+    const jsonLdRaw = Array.isArray(jsonLd.image) ? jsonLd.image : [jsonLd.image];
+    const jsonLdImages = jsonLdRaw
+      .map((entry) => {
+        if (!entry) return '';
+        if (typeof entry === 'string') return entry;
+        if (typeof entry === 'object') return entry.url || entry['@id'] || '';
+        return '';
+      })
+      .map(absoluteUrl)
+      .filter(isUsableUrl);
+
+    const ogImages = Array.from(document.querySelectorAll('meta[property="og:image"], meta[property="og:image:secure_url"], meta[name="og:image"]'))
+      .map((metaEl) => absoluteUrl(metaEl.getAttribute('content')))
+      .filter(isUsableUrl);
+
+    const domImages = Array.from(document.images)
       .flatMap((img) => [
+        bestFromSrcset(img.getAttribute('srcset')),
+        bestFromSrcset(img.getAttribute('data-srcset')),
         img.currentSrc,
-        img.src,
+        img.getAttribute('src'),
         img.getAttribute('data-src'),
         img.getAttribute('data-original'),
         img.getAttribute('data-zoom-image')
       ])
       .filter(Boolean)
-      .map((src) => {
-        try {
-          return new URL(src, location.href).href;
-        } catch (_) {
-          return '';
-        }
-      })
-      .filter((src) => /^https?:\/\//.test(src));
+      .map(absoluteUrl)
+      .filter(isUsableUrl)
+      .filter((imageUrl) => !isExcludedByKeyword(imageUrl));
 
-    const jsonLd = Array.from(document.querySelectorAll('script[type="application/ld+json"]'))
-      .map((script) => {
-        try {
-          return JSON.parse(script.textContent);
-        } catch (_) {
-          return null;
-        }
-      })
-      .flatMap((item) => Array.isArray(item) ? item : [item])
-      .find((item) => item && (item['@type'] === 'Product' || (Array.isArray(item['@type']) && item['@type'].includes('Product')))) || {};
-    const jsonImages = Array.isArray(jsonLd.image) ? jsonLd.image : [jsonLd.image].filter(Boolean);
+    return { jsonLdImages, ogImages, domImages };
+  }, GENERIC_IMAGE_EXCLUDE_KEYWORDS);
 
-    return Array.from(new Set([...jsonImages, ...imageUrls]));
-  }).catch(() => []);
+  let priorityUrls = uniq(collected.jsonLdImages);
+  if (priorityUrls.length < GENERIC_IMAGE_SUFFICIENT_COUNT) {
+    priorityUrls = uniq([...priorityUrls, ...uniq(collected.ogImages)]);
+  }
 
-  return uniq(imageUrls).map((url) => ({ url }));
+  let finalUrls = priorityUrls;
+  if (priorityUrls.length < GENERIC_IMAGE_SUFFICIENT_COUNT) {
+    let domUrls = uniq(collected.domImages);
+    const identifierSourceUrl = collected.jsonLdImages[0] || collected.ogImages[0] || '';
+    const productIdentifier = extractProductIdentifier(identifierSourceUrl);
+    if (productIdentifier) {
+      const matched = domUrls.filter((imageUrl) => imageUrl.includes(productIdentifier));
+      if (matched.length > 0) {
+        console.log(`汎用画像抽出: 商品コード絞り込み適用 identifier=${productIdentifier} (${domUrls.length}枚 -> ${matched.length}枚)`);
+        domUrls = matched;
+      } else {
+        console.log(`汎用画像抽出: 商品コード抽出(identifier=${productIdentifier})に一致するDOM画像が0枚のため、既存フィルタにフォールバック`);
+        domUrls = limitToMostFrequentHost(domUrls);
+      }
+    } else {
+      domUrls = limitToMostFrequentHost(domUrls);
+    }
+    finalUrls = uniq([...priorityUrls, ...domUrls]);
+  }
+
+  if (finalUrls.length > GENERIC_IMAGE_MAX_COUNT) {
+    console.log(`汎用画像抽出: ${page.url()} で検出${finalUrls.length}枚のうち上限${GENERIC_IMAGE_MAX_COUNT}枚に切り詰めました`);
+  }
+
+  return finalUrls.slice(0, GENERIC_IMAGE_MAX_COUNT).map((imageUrl, index) => ({
+    url: imageUrl,
+    sourceUrl: imageUrl,
+    role: index === 0 ? 'main' : 'sub',
+    excludeBelowWidth: GENERIC_IMAGE_MIN_WIDTH
+  }));
+}
+
+function limitToMostFrequentHost(urls) {
+  if (urls.length === 0) return urls;
+  const hostCounts = new Map();
+  for (const imageUrl of urls) {
+    const host = safeHostname(imageUrl);
+    if (!host) continue;
+    hostCounts.set(host, (hostCounts.get(host) || 0) + 1);
+  }
+  let topHost = '';
+  let topCount = 0;
+  for (const [host, count] of hostCounts) {
+    if (count > topCount) {
+      topHost = host;
+      topCount = count;
+    }
+  }
+  if (!topHost) return urls;
+  return urls.filter((imageUrl) => safeHostname(imageUrl) === topHost);
+}
+
+// Pulls a likely product-code token out of a trusted image URL (JSON-LD
+// Product.image or og:image) so DOM candidates can be restricted to the
+// same product instead of relying only on keyword/host heuristics. Looks at
+// the pathname only (not the hostname), splits on non-alphanumeric
+// characters, and keeps tokens of 8+ characters that are either purely
+// numeric or a mix of letters and digits (a bare word like "download"
+// does not count). The longest candidate is assumed to be the product code
+// rather than a coincidental shorter run (e.g. a date or size token).
+function extractProductIdentifier(imageUrl) {
+  if (!imageUrl) return '';
+  try {
+    const parsed = new URL(imageUrl);
+    const pathname = decodeURIComponent(parsed.pathname);
+    const tokens = pathname.split(/[^0-9a-zA-Z]+/).filter(Boolean);
+    const candidates = tokens.filter((token) => {
+      if (token.length < 8) return false;
+      const isPureNumeric = /^[0-9]+$/.test(token);
+      const hasDigit = /[0-9]/.test(token);
+      const hasLetter = /[a-zA-Z]/.test(token);
+      return isPureNumeric || (hasDigit && hasLetter);
+    });
+    if (!candidates.length) return '';
+    candidates.sort((a, b) => b.length - a.length);
+    return candidates[0];
+  } catch (_) {
+    return '';
+  }
+}
+
+function safeHostname(imageUrl) {
+  try {
+    return new URL(imageUrl).hostname;
+  } catch (_) {
+    return '';
+  }
 }
 
 module.exports = {

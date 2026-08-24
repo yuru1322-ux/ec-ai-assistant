@@ -67,6 +67,7 @@ pnpm install --frozen-lockfile
 │       ├── phaseEight.js
 │       ├── selfPortrait.js
 │       ├── selfridges.js
+│       ├── tessabit.js
 │       ├── vivienneWestwood.js
 │       └── zalando.js
 ├── images                 行番号ごとの保存画像（gitignore）
@@ -248,7 +249,7 @@ A列サイトが画像利用を許可していない、またはbot対策で自�
 
 `src/scraper.js` がURLからショップを判定し、専用スクレイパーへ振り分けます。該当がない場合のみ汎用フォールバックを使います。
 
-現在の専用スクレイパーは7ショップです。
+現在の専用スクレイパーは8ショップです。
 
 | ファイル | 対象 |
 | --- | --- |
@@ -259,8 +260,21 @@ A列サイトが画像利用を許可していない、またはbot対策で自�
 | `src/shops/selfPortrait.js` | Self-Portrait（サイズガイド取得あり） |
 | `src/shops/phaseEight.js` | Phase Eight |
 | `src/shops/selfridges.js` | Selfridges（自動取得は無効） |
+| `src/shops/tessabit.js` | Tessabit（N列の画像取得元URLとしてのみ使用。画像抽出のみ専用対応、商品情報は汎用フォールバック） |
 
-汎用フォールバックはJSON-LD、OGP、meta description、一般的な商品情報ラベル、`document.images` を順に参照します。**専用スクレイパーを持つショップで汎用フォールバックに頼らないでください。** 特に画像取得を `document.images` に後退させると、ロゴ・バナー・関連商品などの無関係な画像が混入します。取得できない場合は無関係な画像を集めるのではなく、`要確認：商品画像取得失敗` として停止させます。
+汎用フォールバックは商品テキスト情報をJSON-LD、OGP、meta description、一般的な商品情報ラベルの順に参照します。**専用スクレイパーを持つショップで汎用フォールバックに頼らないでください。**
+
+画像は`scrapeProductPage()`（A列）と`scrapeImagesFromUrl()`（N列）の両方で共通の`extractGenericImages()`が使われます。JSON-LDの`Product.image`→`og:image`→`document.images`の優先順位で取得し、`document.images`を使う場合のみ以下のフィルタを適用します。
+
+- キーワード除外（logo/icon/banner/cookie/onetrust等、大文字小文字を区別しない）
+- **商品コードによる絞り込み**：JSON-LD/og:imageのURLから商品コードらしき識別子（8文字以上の数字列、または英数字混在トークン）を抽出できた場合、DOM候補をその識別子を含むものだけに絞る。識別子が取れない、または一致0件の場合は最頻出ホスト限定にフォールバックする
+- 最頻出ホストへの限定（商品コード絞り込みが使えない場合のフォールバック。ロゴやCookie同意ベンダーの画像は別ホストにあることが多い）
+- 解像度下限400px未満を除外
+- 上限15枚で打ち切り
+
+商品コード絞り込みにより、対象サイトの「関連商品」カルーセルが商品画像と同一ホスト・同一URL構造の場合でも多くのケースで除外できます。ただし画像URLに商品コードが含まれないサイトでは、この絞り込みが効かず引き続き同種の問題が残り得ます（詳細は`docs/scraper-guide.md`の「General Caveat」を参照）。
+
+A列の汎用パス（`page.goto()`、Phase Eight・Self-Portrait・Harvey Nichols・Vivienne Westwood・Hobbs Londonも共有）はHTTPステータスを確認し、403/404/5xxで`要確認：A列の商品情報取得に失敗しました`として即座に停止します。加えて、HTTP 200を返しつつ本文がbot対策の案内ページや無関係なページへのリダイレクトになっている「ソフトブロック」も、商品名・価格・画像が全て空でN列からも補完できない場合に同じステータスを出す形で検知します（詳細は`docs/known-issues.md`を参照）。
 
 新しいショップに対応する場合は、`src/shops/` に専用ファイルを追加し、`src/scraper.js` のディスパッチャへ登録します。各ショップの抽出仕様と注意点は `docs/scraper-guide.md` を参照してください。
 
@@ -309,5 +323,13 @@ H列のステータスは3系統です。
 - Selfridgesは自動取得の対象外です。常に `要確認：Selfridgesページ取得不可` で停止します。
 - Zalandoはbot対策やページ構造の検出失敗により取得できない場合があります。
 - ショップページは国、Cookie、ブラウザロケール、セッションによって表示内容が変わります。取得できなかった情報を推測で補完しません。
+- **mytheresa.comは、許可された範囲の手法（ヘッドレス無効化・待機時間の延長・URLトラッキングパラメータの除去・トップページ経由での遷移・別ロケール）を検証済みですが、いずれも商品ページを取得できません。** bot対策により常にHTTP 200＋案内ページが返ります。再調査は不要です。根拠と検証内容は `docs/known-issues.md` を参照してください。
+
+  mytheresa.comを情報取得元とする行は、次の半自動運用とします。
+
+  1. D列に原価を手入力する（GBP、EUR建てなら通貨を明示）
+  2. `npm start` を実行する。I〜M列は自動算出され、H列は `要確認：A列の商品情報取得に失敗しました` になる
+  3. E列（商品名）・F列（商品説明）・G列（画像ファイル名）を手動で埋める。画像は `images/{行番号}/` に `01_main.jpg`、`02_sub.jpg` の形式で配置する
+  4. H列を `完了（手動対応）` に書き換える。以降の実行でスキップされ、手入力内容が保護される
 
 詳細は `docs/known-issues.md` を参照してください。
