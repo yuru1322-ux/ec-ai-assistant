@@ -216,7 +216,23 @@ const FLAT_INTERNATIONAL_SHIPPING_GBP = new Map([
   ['MONCLER', 50]
 ]);
 
-function calculatePricing({ sourceUrl, brandName, costGbp, category, productData = {}, settings = {} }) {
+// A source URL is treated as France-sourced when its hostname ends in `.fr`,
+// or its first path segment is a French locale prefix (moncler.com uses
+// `/fr-fr/...`). This generalizes the shop=MONCLER check above so the flat
+// GBP 50 Moncler-France shipping rate also applies when A-column is a
+// French-locale URL on a retailer other than moncler.com itself.
+function isFranceSourcedUrl(sourceUrl) {
+  try {
+    const parsed = new URL(sourceUrl);
+    if (/\.fr$/i.test(parsed.hostname)) return true;
+    const firstSegment = (parsed.pathname.split('/').filter(Boolean)[0] || '').toLowerCase();
+    return firstSegment === 'fr' || firstSegment === 'fr-fr';
+  } catch (_) {
+    return false;
+  }
+}
+
+function calculatePricing({ sourceUrl, brandName, costGbp, category, productData = {}, settings = {}, manualCostCurrency = '' }) {
   const warnings = [];
   const blockingWarnings = [];
   const errors = [];
@@ -236,7 +252,17 @@ function calculatePricing({ sourceUrl, brandName, costGbp, category, productData
   if (PROVISIONAL_SHIPPING_SHOPS.has(shopResult.shopName)) {
     warnings.push('要確認：ショップ送料が暫定値（0）です');
   }
-  const hasFlatInternationalShipping = FLAT_INTERNATIONAL_SHIPPING_GBP.has(shopResult.shopName);
+  // Direct moncler.com rows are covered by the shop-based check. Rows sourced
+  // from a different retailer (e.g. an N-column-less mytheresa.com row where
+  // moncler.com itself could not be scraped) get the same flat rate when the
+  // A-column URL itself indicates a French page, or — when the page could not
+  // be read at all and the client manually entered a EUR-denominated D-column
+  // cost — that EUR entry is treated as a France-sourced signal. Both paths
+  // are scoped to brand=Moncler; this is a client-confirmed rule for Moncler
+  // specifically, not a general France-shipping rule.
+  const isMonclerFranceSourced = normalizeBrandName(brandName) === 'MONCLER'
+    && (isFranceSourcedUrl(sourceUrl) || manualCostCurrency === 'EUR');
+  const hasFlatInternationalShipping = FLAT_INTERNATIONAL_SHIPPING_GBP.has(shopResult.shopName) || isMonclerFranceSourced;
 
   const categoryResult = resolveShippingCategory({ category, productData, sourceUrl });
   if (hasFlatInternationalShipping) {
@@ -272,7 +298,7 @@ function calculatePricing({ sourceUrl, brandName, costGbp, category, productData
   }
 
   const internationalShippingGbp = hasFlatInternationalShipping
-    ? FLAT_INTERNATIONAL_SHIPPING_GBP.get(shopResult.shopName)
+    ? (FLAT_INTERNATIONAL_SHIPPING_GBP.get(shopResult.shopName) ?? FLAT_INTERNATIONAL_SHIPPING_GBP.get('MONCLER'))
     : calculateInternationalShipping(normalizedCost, categoryResult.category);
   if (!Number.isFinite(internationalShippingGbp)) {
     blockingWarnings.push('要確認：カテゴリー判定');

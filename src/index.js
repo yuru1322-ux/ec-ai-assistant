@@ -158,7 +158,8 @@ async function processProduct({ browser, sheets, settings, product }) {
         costGbp: costResult.cost,
         category: merged.category,
         productData: merged,
-        settings
+        settings,
+        manualCostCurrency: costResult.manualCostCurrency
       });
     const imageStatus = resolveImageStatus(imageFileNames.length, infoSourceUrl, infoSourceInvalid);
     const finalStatus = appendStatusMessages(getCompletionStatus(merged, imageStatus, scraped), [
@@ -328,30 +329,31 @@ function finiteOrNull(num) {
 function determineCost({ scraped, manualCostRaw, settings }) {
   const scrapeResult = getCostGbp(scraped, settings);
   if (hasValue(scrapeResult.cost)) {
-    return { cost: scrapeResult.cost, warning: scrapeResult.warning, note: '' };
+    return { cost: scrapeResult.cost, warning: scrapeResult.warning, note: '', manualCostCurrency: '' };
   }
 
   const manualRawTrimmed = String(manualCostRaw === undefined || manualCostRaw === null ? '' : manualCostRaw).trim();
   const manual = parseManualCost(manualCostRaw);
   if (!manual) {
     if (manualRawTrimmed) {
-      return { cost: '', warning: '要確認：D列の原価表記を確認してください', note: '' };
+      return { cost: '', warning: '要確認：D列の原価表記を確認してください', note: '', manualCostCurrency: '' };
     }
-    return { cost: '', warning: scrapeResult.warning, note: '' };
+    return { cost: '', warning: scrapeResult.warning, note: '', manualCostCurrency: '' };
   }
 
   if (manual.currency === 'GBP') {
-    return { cost: manual.amount, warning: '', note: '要確認：原価はD列の手入力値（GBP）を使用しました' };
+    return { cost: manual.amount, warning: '', note: '要確認：原価はD列の手入力値（GBP）を使用しました', manualCostCurrency: 'GBP' };
   }
 
   const eurGbpRate = settingNumber(settings, 'EUR_GBP_RATE');
   if (!Number.isFinite(eurGbpRate) || eurGbpRate <= 0) {
-    return { cost: '', warning: '要確認：EUR/GBP為替レートを確認してください', note: '' };
+    return { cost: '', warning: '要確認：EUR/GBP為替レートを確認してください', note: '', manualCostCurrency: '' };
   }
   return {
     cost: roundNumber(manual.amount * eurGbpRate, 2),
     warning: '',
-    note: '要確認：原価はD列の手入力値（EUR→GBP換算）を使用しました'
+    note: '要確認：原価はD列の手入力値（EUR→GBP換算）を使用しました',
+    manualCostCurrency: 'EUR'
   };
 }
 
