@@ -94,7 +94,7 @@ function curlGet(url, timeoutMs) {
 async function extractFlannelsProductDetails(page) {
   return page.evaluate(() => {
     const clean = (value) => (value || '').replace(/\s+/g, ' ').trim();
-    const jsonLd = Array.from(document.querySelectorAll('script[type="application/ld+json"]'))
+    const jsonLdBlocks = Array.from(document.querySelectorAll('script[type="application/ld+json"]'))
       .map((script) => {
         try {
           return JSON.parse(script.textContent);
@@ -103,16 +103,48 @@ async function extractFlannelsProductDetails(page) {
         }
       })
       .flatMap((item) => Array.isArray(item) ? item : [item])
-      .find((item) => item && (item['@type'] === 'Product' || (Array.isArray(item['@type']) && item['@type'].includes('Product')))) || {};
+      .filter(Boolean);
+
+    const singleProduct = jsonLdBlocks.find((item) => item['@type'] === 'Product'
+      || (Array.isArray(item['@type']) && item['@type'].includes('Product')));
+    const productGroup = jsonLdBlocks.find((item) => item['@type'] === 'ProductGroup');
+
+    // Multi-colour products publish a ProductGroup with one Product entry
+    // per colour in `hasVariant`, each carrying its own price/color/sku —
+    // there is no top-level Product/offers block at all in that case. The
+    // URL's #colcode=... fragment (present in location.hash even though it
+    // was stripped for the network request) identifies which variant this
+    // page is actually showing.
+    let jsonLd = singleProduct || {};
+    if (!singleProduct && productGroup && Array.isArray(productGroup.hasVariant)) {
+      const colcodeMatch = location.hash.match(/colcode=(\w+)/i);
+      const colcode = colcodeMatch ? colcodeMatch[1] : '';
+      jsonLd = (colcode && productGroup.hasVariant.find((variant) => variant.sku === colcode))
+        || productGroup.hasVariant[0]
+        || {};
+    }
 
     const offer = Array.isArray(jsonLd.offers) ? jsonLd.offers[0] : jsonLd.offers || {};
     const price = Number(offer.price);
     const sku = clean(jsonLd.sku || offer.sku);
 
+    // The product-detail accordion is a native <details> element
+    // (data-testid="description-contents"), fully server-rendered — its
+    // bullet list is present in the DOM regardless of expanded/collapsed
+    // state, no click/JS interaction needed. Some product pages repeat a
+    // second "Product Highlights" <ul> (a Flannels content duplication, not
+    // an extraction bug) after the first, so only the first <ul> is read to
+    // avoid pulling in the duplicate/overlapping bullets.
+    const firstList = document.querySelector('[data-testid="description-contents"] ul');
+    const features = firstList
+      ? Array.from(firstList.querySelectorAll('li')).map((li) => clean(li.textContent)).filter(Boolean)
+      : [];
+
     return {
       price: Number.isFinite(price) && price > 0 ? price : '',
       currency: clean(offer.priceCurrency),
       color: clean(jsonLd.color),
+      features,
       productCode: sku,
       sku,
       detailSource: 'flannels'
