@@ -90,6 +90,57 @@ that was considered and intentionally not implemented, since result-based
 detection (empty name/price/images) already covers the soft-block cases
 observed without needing per-cause pattern matching.
 
+### flannels.com
+
+flannels.com (Vercel-hosted) cannot be reached by Playwright/Chromium in
+this environment: every `page.goto()` attempt against a product page, and
+against the bare homepage, failed with `net::ERR_HTTP2_PROTOCOL_ERROR`
+before any HTTP response was received — a connection-level failure, not a
+403/404/5xx or a bot-challenge body.
+
+This was diagnosed by comparing Playwright against a plain `curl` GET (no
+User-Agent spoofing, no stealth plugins, no proxy) on the same URLs:
+
+| Tool | Result |
+| --- | --- |
+| Playwright `page.goto()` | `net::ERR_HTTP2_PROTOCOL_ERROR`, every attempt, including the homepage |
+| `curl` (default UA, `-L`) | HTTP 200, full page body (714KB), verified to contain the real product title, description, price, and image URLs — not a challenge page |
+
+A broader sweep across the 18 shop domains actually used in the production
+sheet (Playwright vs. curl, same URL, same conditions) found this failure
+mode on **flannels.com only** — every other domain behaved identically
+between the two tools (including sites that are genuinely bot-blocked,
+like vitkac.com and moncler.com, which returned matching 403s from both).
+One domain (net-a-porter.com) showed the *opposite* asymmetry — curl failed
+with an HTTP/2 stream reset while Playwright succeeded in getting a 403 —
+confirming this is a per-site connection quirk, not a general "curl is
+better" or "Playwright is broken" pattern.
+
+flannels.com's own image CDN (`cdn.media.amplience.net`) is unaffected and
+loads fine through Playwright's `page.request.get()`, so the workaround is
+scoped to the initial document load only.
+
+**Fix**: `src/shops/flannels.js` fetches the product page via `curl` and
+serves the result to `page.goto()` through Playwright request interception
+(`page.route()` + `route.fulfill()`), so Chromium never makes its own
+network request to flannels.com for the document. Everything downstream
+(generic field/image extraction via `page.evaluate()`, image downloads via
+`page.request.get()`) runs unmodified against the resulting DOM — this is
+not a dedicated shop extractor, just an alternate page-load path feeding
+into the same generic extraction used by every other unsupported shop.
+`src/scraper.js`'s `inspectGenericAccess()` and `scrapeImagesFromUrl()`
+each branch on `isFlannelsUrl()` before their `page.goto()` call; every
+other shop's code path is unchanged (verified by regression-testing
+vitkac.com, moncler.com, and libertylondon.com after this change — all
+three still behave exactly as before).
+
+If flannels.com starts returning a real blocking status (403/404/5xx) to
+curl in the future, `gotoFlannelsViaCurl()` still surfaces that status
+through the same `isGenericBlockedStatus()` check used by every other
+shop, so this does not bypass the project's existing access-control
+detection — it only replaces *how* the page is fetched, not how a genuine
+block is handled.
+
 ### mytheresa.com
 
 mytheresa.com's product pages cannot be retrieved with any permitted

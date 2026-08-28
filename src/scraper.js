@@ -45,6 +45,11 @@ const {
   isTessabitUrl,
   extractTessabitImages
 } = require('./shops/tessabit');
+const {
+  isFlannelsUrl,
+  gotoFlannelsViaCurl,
+  extractFlannelsProductDetails
+} = require('./shops/flannels');
 
 const GENERIC_ACCESS_FAILURE_STATUS = '要確認：A列の商品情報取得に失敗しました';
 // Exact status codes treated as a block. 5xx is handled separately as a
@@ -167,7 +172,9 @@ async function scrapeProductPage(page, url) {
     ? await extractVivienneWestwoodProductDetails(page, url)
     : isHobbs
       ? await extractHobbsLondonProductDetails(page, url)
-      : null;
+      : isFlannelsUrl(url)
+        ? await extractFlannelsProductDetails(page)
+        : null;
   if (shopProductDetails && shopProductDetails.extractionLog && shopProductDetails.extractionLog.color) {
     const colorLog = shopProductDetails.extractionLog.color;
     const shopName = isHobbs ? 'Hobbs London' : 'Vivienne Westwood';
@@ -281,8 +288,12 @@ async function scrapeImagesFromUrl(page, url) {
     }
 
     if (normalizeUrlForComparison(page.url()) !== normalizeUrlForComparison(url)) {
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: config.browser.timeoutMs });
-      await page.waitForLoadState('networkidle', { timeout: config.browser.timeoutMs }).catch(() => {});
+      if (isFlannelsUrl(url)) {
+        await gotoFlannelsViaCurl(page, url, config.browser.timeoutMs);
+      } else {
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: config.browser.timeoutMs });
+        await page.waitForLoadState('networkidle', { timeout: config.browser.timeoutMs }).catch(() => {});
+      }
     }
 
     if (isPhaseEightUrl(url)) return await extractPhaseEightImages(page);
@@ -299,8 +310,13 @@ async function scrapeImagesFromUrl(page, url) {
 }
 
 async function inspectGenericAccess(page, url, timeoutMs) {
-  const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
-  const status = response ? response.status() : 0;
+  let status;
+  if (isFlannelsUrl(url)) {
+    status = (await gotoFlannelsViaCurl(page, url, timeoutMs)).status;
+  } else {
+    const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+    status = response ? response.status() : 0;
+  }
   if (isGenericBlockedStatus(status)) {
     return {
       shouldStop: true,
