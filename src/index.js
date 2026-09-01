@@ -159,7 +159,7 @@ async function processProduct({ browser, sheets, settings, product }) {
         category: merged.category,
         productData: merged,
         settings,
-        manualCostCurrency: costResult.manualCostCurrency
+        note: product.note
       });
     const imageStatus = resolveImageStatus(imageFileNames.length, infoSourceUrl, infoSourceInvalid);
     const finalStatus = appendStatusMessages(getCompletionStatus(merged, imageStatus, scraped), [
@@ -329,31 +329,30 @@ function finiteOrNull(num) {
 function determineCost({ scraped, manualCostRaw, settings }) {
   const scrapeResult = getCostGbp(scraped, settings);
   if (hasValue(scrapeResult.cost)) {
-    return { cost: scrapeResult.cost, warning: scrapeResult.warning, note: '', manualCostCurrency: '' };
+    return { cost: scrapeResult.cost, warning: scrapeResult.warning, note: '' };
   }
 
   const manualRawTrimmed = String(manualCostRaw === undefined || manualCostRaw === null ? '' : manualCostRaw).trim();
   const manual = parseManualCost(manualCostRaw);
   if (!manual) {
     if (manualRawTrimmed) {
-      return { cost: '', warning: '要確認：D列の原価表記を確認してください', note: '', manualCostCurrency: '' };
+      return { cost: '', warning: '要確認：D列の原価表記を確認してください', note: '' };
     }
-    return { cost: '', warning: scrapeResult.warning, note: '', manualCostCurrency: '' };
+    return { cost: '', warning: scrapeResult.warning, note: '' };
   }
 
   if (manual.currency === 'GBP') {
-    return { cost: manual.amount, warning: '', note: '要確認：原価はD列の手入力値（GBP）を使用しました', manualCostCurrency: 'GBP' };
+    return { cost: manual.amount, warning: '', note: '要確認：原価はD列の手入力値（GBP）を使用しました' };
   }
 
   const eurGbpRate = settingNumber(settings, 'EUR_GBP_RATE');
   if (!Number.isFinite(eurGbpRate) || eurGbpRate <= 0) {
-    return { cost: '', warning: '要確認：EUR/GBP為替レートを確認してください', note: '', manualCostCurrency: '' };
+    return { cost: '', warning: '要確認：EUR/GBP為替レートを確認してください', note: '' };
   }
   return {
     cost: roundNumber(manual.amount * eurGbpRate, 2),
     warning: '',
-    note: '要確認：原価はD列の手入力値（EUR→GBP換算）を使用しました',
-    manualCostCurrency: 'EUR'
+    note: '要確認：原価はD列の手入力値（EUR→GBP換算）を使用しました'
   };
 }
 

@@ -216,23 +216,22 @@ const FLAT_INTERNATIONAL_SHIPPING_GBP = new Map([
   ['MONCLER', 50]
 ]);
 
-// A source URL is treated as France-sourced when its hostname ends in `.fr`,
-// or its first path segment is a French locale prefix (moncler.com uses
-// `/fr-fr/...`). This generalizes the shop=MONCLER check above so the flat
-// GBP 50 Moncler-France shipping rate also applies when A-column is a
-// French-locale URL on a retailer other than moncler.com itself.
-function isFranceSourcedUrl(sourceUrl) {
-  try {
-    const parsed = new URL(sourceUrl);
-    if (/\.fr$/i.test(parsed.hostname)) return true;
-    const firstSegment = (parsed.pathname.split('/').filter(Boolean)[0] || '').toLowerCase();
-    return firstSegment === 'fr' || firstSegment === 'fr-fr';
-  } catch (_) {
-    return false;
-  }
+// A retailer (non-moncler.com) row is treated as France-sourced only when the
+// client has said so explicitly in the C-column note — client-confirmed
+// instruction, not a URL/currency guess. Earlier this also matched on the
+// A-column URL's locale (hostname ending `.fr`, or a `/fr/`-style first path
+// segment) or on a EUR-denominated manual cost, but both produced false
+// positives (e.g. a `/fr/` locale picked for language reasons, unrelated to
+// where the item ships from), so detection is note-text-only now.
+const FRANCE_NOTE_PATTERN = /フランス/;
+const PURCHASE_NOTE_PATTERN = /買付|買い付け|仕入/;
+
+function isFranceSourcedNote(note) {
+  const text = String(note || '');
+  return FRANCE_NOTE_PATTERN.test(text) && PURCHASE_NOTE_PATTERN.test(text);
 }
 
-function calculatePricing({ sourceUrl, brandName, costGbp, category, productData = {}, settings = {}, manualCostCurrency = '' }) {
+function calculatePricing({ sourceUrl, brandName, costGbp, category, productData = {}, settings = {}, note = '' }) {
   const warnings = [];
   const blockingWarnings = [];
   const errors = [];
@@ -254,14 +253,12 @@ function calculatePricing({ sourceUrl, brandName, costGbp, category, productData
   }
   // Direct moncler.com rows are covered by the shop-based check. Rows sourced
   // from a different retailer (e.g. an N-column-less mytheresa.com row where
-  // moncler.com itself could not be scraped) get the same flat rate when the
-  // A-column URL itself indicates a French page, or — when the page could not
-  // be read at all and the client manually entered a EUR-denominated D-column
-  // cost — that EUR entry is treated as a France-sourced signal. Both paths
-  // are scoped to brand=Moncler; this is a client-confirmed rule for Moncler
+  // moncler.com itself could not be scraped) get the same flat rate only when
+  // the C-column note explicitly says the item was bought via a French site.
+  // Scoped to brand=Moncler; this is a client-confirmed rule for Moncler
   // specifically, not a general France-shipping rule.
   const isMonclerFranceSourced = normalizeBrandName(brandName) === 'MONCLER'
-    && (isFranceSourcedUrl(sourceUrl) || manualCostCurrency === 'EUR');
+    && isFranceSourcedNote(note);
   const hasFlatInternationalShipping = FLAT_INTERNATIONAL_SHIPPING_GBP.has(shopResult.shopName) || isMonclerFranceSourced;
 
   const categoryResult = resolveShippingCategory({ category, productData, sourceUrl });

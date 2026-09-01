@@ -208,24 +208,25 @@ which only happens when A-column resolves to `moncler.com` directly. It is also
 triggered — independent of resolved shop — whenever **both** of these hold:
 
 - brand (B column, normalized) is `MONCLER`, and
-- either:
-  - `isFranceSourcedUrl(sourceUrl)` is true: the A-column URL's hostname ends in
-    `.fr`, or its first path segment is `fr` or `fr-fr` (matches
-    `moncler.com/fr-fr/...`-style locale prefixes on any retailer's URL), or
-  - `manualCostCurrency === 'EUR'`: the A-column page could not be scraped for a
-    price at all, and the client's D-column manual cost entry was parsed as EUR
-    (see `determineCost()` in `src/index.js` — this is the same signal behind
-    the `要確認：原価はD列の手入力値（EUR→GBP換算）を使用しました` note).
+- `isFranceSourcedNote(note)` is true: the C-column note (passed to
+  `calculatePricing()` as `note`) contains both `フランス` and a purchase-related
+  keyword (`買付`, `買い付け`, or `仕入`) — i.e. an explicit client instruction
+  that the item was bought via a French site.
 
 This covers Moncler product rows sourced through a third-party retailer (e.g.
 mytheresa.com) whose own moncler.com listing could not be scraped (bot-blocked,
-soft-blocked, etc.): if the client enters a EUR cost manually because the only
-price they have is in EUR, that is treated as a France-sourced signal for
-Moncler and the flat GBP 50 rate applies automatically instead of falling back
-to the category/price-bucket table. A manually-entered **GBP** cost does not
-trigger this path — only EUR does. This is scoped to brand=Moncler specifically
-(a client-confirmed rule for this brand); it is not a general "any French URL
-gets GBP 50" rule for other brands.
+soft-blocked, etc.): when the client's C-column note says so explicitly, the
+flat GBP 50 rate applies instead of falling back to the category/price-bucket
+table. This is scoped to brand=Moncler specifically (a client-confirmed rule
+for this brand); it is not a general "any French purchase gets GBP 50" rule
+for other brands.
+
+Detection used to also trigger on the A-column URL's locale (hostname ending
+`.fr`, or a `/fr/`-style first path segment) or on a EUR-denominated D-column
+manual cost, without requiring a C-column note. Both produced false positives
+(e.g. a `/fr/` URL segment picked for language reasons, unrelated to where the
+item actually ships from) and were replaced with the note-only check above —
+client confirmation, not a guess from the URL or currency.
 
 `internationalShippingGbp` resolves to `FLAT_INTERNATIONAL_SHIPPING_GBP.get(shopResult.shopName)`
 when available, falling back to `FLAT_INTERNATIONAL_SHIPPING_GBP.get('MONCLER')`
