@@ -6,7 +6,8 @@ Googleスプレッドシートの商品URLとブランド名を読み込み、Pl
 
 | ドキュメント | 内容 |
 | --- | --- |
-| `CLAUDE.md` | Claude Code向け引き継ぎ。禁止事項と安全ルール |
+| `CLAUDE.md` | AIエージェント向け引き継ぎ（Claude Code・Codex共通の正本）。禁止事項と安全ルール |
+| `AGENTS.md` | Codex向けの入口。`CLAUDE.md`を読むよう指示するだけの薄いファイル |
 | `docs/project-overview.md` | 全体構成と処理フロー |
 | `docs/spreadsheet-spec.md` | スプレッドシート列と`設定`シートの仕様 |
 | `docs/pricing-rules.md` | 価格計算の全ルール |

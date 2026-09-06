@@ -1,5 +1,10 @@
 # Claude Code Handoff
 
+This file is the single source of truth for AI-agent instructions on this
+project, shared by Claude Code and Codex (`AGENTS.md` at the repo root points
+here). Update this file when a rule changes; do not fork the content into a
+separate Codex-specific copy.
+
 ## Project Purpose
 
 This project automates BUYMA listing preparation from Google Sheets product URLs. It reads product rows, scrapes official EC product pages with Playwright, downloads product images, generates BUYMA listing copy with the OpenAI Responses API, calculates BUYMA pricing, and writes results back to Google Sheets.
