@@ -2,7 +2,7 @@ const path = require('path');
 const { chromium } = require('playwright');
 const config = require('./config');
 const Status = require('./status');
-const { ensureDir } = require('./utils');
+const { ensureDir, parseLocalizedNumber } = require('./utils');
 const { writeErrorLog } = require('./logger');
 const { getSheetsClient, readProducts, readSettings, updateStatus, writeResult } = require('./sheets');
 const { scrapeProductPage, scrapeImagesFromUrl } = require('./scraper');
@@ -296,34 +296,6 @@ function parseManualCost(value) {
   if (amount < MANUAL_COST_MIN_PLAUSIBLE_AMOUNT) return null;
 
   return { amount, currency };
-}
-
-function parseLocalizedNumber(text) {
-  if (!text) return null;
-  const hasDot = text.includes('.');
-  const hasComma = text.includes(',');
-
-  if (hasDot && hasComma) {
-    const decimalChar = text.lastIndexOf(',') > text.lastIndexOf('.') ? ',' : '.';
-    const thousandsChar = decimalChar === ',' ? '.' : ',';
-    const cleaned = text.split(thousandsChar).join('').replace(decimalChar, '.');
-    return finiteOrNull(Number(cleaned));
-  }
-
-  if (hasDot || hasComma) {
-    const sep = hasDot ? '.' : ',';
-    const parts = text.split(sep);
-    const lastPart = parts[parts.length - 1];
-    const isThousandsSeparator = parts.length > 2 || lastPart.length === 3;
-    const cleaned = isThousandsSeparator ? parts.join('') : text.replace(sep, '.');
-    return finiteOrNull(Number(cleaned));
-  }
-
-  return finiteOrNull(Number(text));
-}
-
-function finiteOrNull(num) {
-  return Number.isFinite(num) ? num : null;
 }
 
 function determineCost({ scraped, manualCostRaw, settings }) {

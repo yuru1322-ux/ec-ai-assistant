@@ -1,6 +1,6 @@
 const { chromium } = require('playwright');
 const config = require('./config');
-const { uniq } = require('./utils');
+const { uniq, parseLocalizedNumber } = require('./utils');
 const {
   isVivienneWestwoodUrl,
   extractVivienneWestwoodImages,
@@ -199,6 +199,21 @@ async function scrapeProductPage(page, url) {
       }
       return '';
     };
+    const metaAttr = (selectors, attr) => {
+      for (const selector of selectors) {
+        const element = document.querySelector(selector);
+        const value = clean(element && element.getAttribute(attr));
+        if (value) return value;
+      }
+      return '';
+    };
+    const itemPropText = (prop) => {
+      const element = document.querySelector(`[itemprop="${prop}"]`);
+      if (!element) return '';
+      const content = clean(element.getAttribute('content'));
+      if (content) return content;
+      return clean(element.textContent);
+    };
     const labeledText = (labels) => {
       const candidates = Array.from(document.querySelectorAll('dt, th, strong, b, span, div, p'));
       for (const label of labels) {
@@ -211,8 +226,25 @@ async function scrapeProductPage(page, url) {
       }
       return '';
     };
+    // Priority-ordered: the most specific/reliable container first
+    // (.product-price-container is a Shopify pattern seen on minoxboutique.co.uk),
+    // generic price classes last. Only the FIRST selector with any match is used,
+    // so a specific match is never overruled by a generic one lower in the list.
+    // Scans every matching element for that selector (not just the first) so an
+    // empty/placeholder node doesn't block a later one with the same class.
+    const PRICE_TEXT_PATTERN = /[£€$¥]\s?\d[\d.,]*|\b\d[\d.,]*\s?(?:GBP|EUR|USD|JPY)\b/i;
+    const priceLikeText = (selectors) => {
+      for (const selector of selectors) {
+        for (const element of Array.from(document.querySelectorAll(selector))) {
+          const text = clean(element && element.textContent);
+          const match = text.match(PRICE_TEXT_PATTERN);
+          if (match) return match[0];
+        }
+      }
+      return '';
+    };
 
-    const jsonLd = Array.from(document.querySelectorAll('script[type="application/ld+json"]'))
+    const jsonLdNodes = Array.from(document.querySelectorAll('script[type="application/ld+json"]'))
       .map((script) => {
         try {
           return JSON.parse(script.textContent);
@@ -220,24 +252,49 @@ async function scrapeProductPage(page, url) {
           return null;
         }
       })
-      .flatMap((item) => Array.isArray(item) ? item : [item])
-      .find((item) => item && (item['@type'] === 'Product' || (Array.isArray(item['@type']) && item['@type'].includes('Product')))) || {};
-
-    const jsonBrand = typeof jsonLd.brand === 'string' ? jsonLd.brand : clean(jsonLd.brand && jsonLd.brand.name);
+      .filter(Boolean)
+      .flatMap((item) => Array.isArray(item) ? item : (Array.isArray(item['@graph']) ? item['@graph'] : [item]))
+      .filter((item) => {
+        if (!item) return false;
+        const type = item['@type'];
+        const types = Array.isArray(type) ? type : [type];
+        return types.includes('Product') || types.includes('ProductGroup');
+      });
 
     return {
-      name: clean(jsonLd.name) || textBySelector(['h1', '[class*="product"][class*="name"]', '[class*="item"][class*="name"]']) || meta(['meta[property="og:title"]', 'meta[name="twitter:title"]']),
-      brand: jsonBrand || labeledText(['ブランド', 'Brand', 'brand']) || meta(['meta[property="product:brand"]']),
-      description: clean(jsonLd.description) || meta(['meta[name="description"]', 'meta[property="og:description"]']) || textBySelector(['[class*="description"]', '[class*="detail"]']),
-      color: labeledText(['カラー', '色', 'Color', 'color']),
-      material: labeledText(['素材', 'Material', 'material']),
-      category: labeledText(['カテゴリ', 'カテゴリー', 'Category', 'category']) || meta(['meta[property="product:category"]'])
+      jsonLdNodes,
+      nameFallback: textBySelector(['h1', '[class*="product"][class*="name"]', '[class*="item"][class*="name"]']) || meta(['meta[property="og:title"]', 'meta[name="twitter:title"]']),
+      ogDescription: meta(['meta[property="og:description"]']),
+      metaDescription: meta(['meta[name="description"]']),
+      domDescriptionFallback: textBySelector(['[class*="description"]', '[class*="detail"]']),
+      labeledBrand: labeledText(['ブランド', 'Brand', 'brand']),
+      metaBrand: meta(['meta[property="product:brand"]']),
+      labeledColor: labeledText(['カラー', '色', 'Color', 'color']),
+      labeledMaterial: labeledText(['素材', 'Material', 'material']),
+      labeledCategory: labeledText(['カテゴリ', 'カテゴリー', 'Category', 'category']),
+      metaCategory: meta(['meta[property="product:category"]']),
+      priceMeta: {
+        metaAmount: metaAttr(['meta[property="og:price:amount"]', 'meta[property="product:price:amount"]'], 'content'),
+        metaCurrency: metaAttr(['meta[property="og:price:currency"]', 'meta[property="product:price:currency"]'], 'content'),
+        itemPropAmount: itemPropText('price'),
+        itemPropCurrency: itemPropText('priceCurrency')
+      },
+      priceDomText: priceLikeText([
+        '.product-price-container',
+        '[itemprop="price"]',
+        '.product-price',
+        '.price__current',
+        '.current-price',
+        '.product-detail__price',
+        '.price'
+      ])
     };
   }).then((data) => {
+    const resolved = resolveGenericProductFields(data);
     const imageUrls = shopImageSources.map((image) => image.url);
     const mergedData = shopProductDetails
-      ? mergeScrapedData(data, shopProductDetails)
-      : data;
+      ? mergeScrapedData(resolved, shopProductDetails)
+      : resolved;
 
     return {
       ...mergedData,
@@ -245,6 +302,235 @@ async function scrapeProductPage(page, url) {
       imageSources: shopImageSources
     };
   });
+}
+
+// Below this amount, a parsed price is almost certainly a misread (a decimal
+// point mistaken for a thousands separator, a "from £X" teaser figure, etc.)
+// rather than a genuine product cost — same reasoning and threshold as
+// MANUAL_COST_MIN_PLAUSIBLE_AMOUNT in src/index.js's parseManualCost().
+const GENERIC_PRICE_MIN_PLAUSIBLE_AMOUNT = 5;
+const GENERIC_DOM_PRICE_WARNING = '要確認：価格をページ表示から取得しました。金額を確認してください';
+const CURRENCY_SYMBOL_MAP = { '£': 'GBP', '€': 'EUR', '$': 'USD', '¥': 'JPY' };
+
+function cleanText(value) {
+  return String(value === undefined || value === null ? '' : value).replace(/\s+/g, ' ').trim();
+}
+
+function normalizeTypes(type) {
+  if (!type) return [];
+  return Array.isArray(type) ? type : [type];
+}
+
+// Reads a JSON-LD value that may be a plain string/number, an array of
+// either, or a Thing-like object ({ name: "..." }) — e.g. Product.brand is
+// commonly { "@type": "Brand", "name": "Moncler" } rather than a bare string.
+function jsonLdString(value) {
+  if (value === undefined || value === null) return '';
+  if (typeof value === 'string' || typeof value === 'number') return cleanText(value);
+  if (Array.isArray(value)) return value.map(jsonLdString).find(Boolean) || '';
+  if (typeof value === 'object') return cleanText(value.name || value['@id'] || '');
+  return '';
+}
+
+// Builds one candidate per Product-like JSON-LD node: a standalone Product
+// (or a ProductGroup with no variants, e.g. before hasVariant is checked) is
+// its own candidate with no group; a ProductGroup with hasVariant (Shopify's
+// multi-colour/size pattern) additionally contributes one candidate per
+// variant, paired with its parent group so shared fields (description,
+// brand, category) can fall back to the group when the variant lacks them.
+function buildJsonLdCandidates(jsonLdNodes) {
+  const candidates = [];
+  (jsonLdNodes || []).forEach((node, nodeIndex) => {
+    if (!node) return;
+    const types = normalizeTypes(node['@type']);
+    if (types.includes('ProductGroup')) {
+      candidates.push({ node, groupNode: null, nodeIndex });
+      if (Array.isArray(node.hasVariant)) {
+        node.hasVariant.forEach((variant, variantIndex) => {
+          if (!variant || !normalizeTypes(variant['@type']).includes('Product')) return;
+          candidates.push({ node: variant, groupNode: node, nodeIndex: nodeIndex + (variantIndex + 1) / 1000 });
+        });
+      }
+    } else if (types.includes('Product')) {
+      candidates.push({ node, groupNode: null, nodeIndex });
+    }
+  });
+  return candidates;
+}
+
+// Richness score used to pick the best candidate when a page has several
+// Product-like JSON-LD nodes (a ProductGroup's own entry plus each of its
+// variants, or unrelated Product blocks such as a recommendations widget).
+// Mirrors the spirit of scoreProductNode() in src/shops/phaseEight.js, but
+// scores on information density (images/offers/description/identifiers)
+// rather than a name/sku match against the current page.
+function scoreJsonLdCandidate(node, groupNode) {
+  let score = 0;
+  const images = node.image || (groupNode && groupNode.image);
+  score += Array.isArray(images) ? images.length : (images ? 1 : 0);
+  if (node.offers || (groupNode && groupNode.offers)) score += 20;
+  const description = String((groupNode && groupNode.description) || node.description || '');
+  score += Math.min(description.length, 500) / 50;
+  if (node.sku || node.mpn) score += 5;
+  if (node.name || (groupNode && groupNode.name)) score += 2;
+  return score;
+}
+
+function selectBestJsonLdCandidate(jsonLdNodes) {
+  const candidates = buildJsonLdCandidates(jsonLdNodes);
+  if (candidates.length === 0) return { node: {}, groupNode: null };
+  return candidates
+    .map((candidate) => ({ ...candidate, score: scoreJsonLdCandidate(candidate.node, candidate.groupNode) }))
+    .sort((a, b) => b.score - a.score || a.nodeIndex - b.nodeIndex)[0];
+}
+
+// Fields shared across colour/size variants of the same product (name,
+// description, brand, category, material): prefer the ProductGroup's own
+// value, falling back to the selected variant's.
+function groupPreferredField(node, groupNode, field) {
+  return jsonLdString(groupNode && groupNode[field]) || jsonLdString(node && node[field]);
+}
+
+// Fields that legitimately differ per variant (colour, sku, mpn): prefer the
+// selected variant's own value, falling back to the group's.
+function variantPreferredField(node, groupNode, field) {
+  return jsonLdString(node && node[field]) || jsonLdString(groupNode && groupNode[field]);
+}
+
+// Every Offer found anywhere in the page's Product-like JSON-LD, in document
+// order: a standalone Product's own offers, a ProductGroup's offers when
+// present directly on the group, and every hasVariant[].offers — client
+// instruction: offers can live in either place depending on the site, so
+// both must be checked rather than assuming one location.
+function collectRawOffers(jsonLdNodes) {
+  const offers = [];
+  const addOffers = (value) => {
+    if (!value) return;
+    (Array.isArray(value) ? value : [value]).forEach((offer) => {
+      if (offer && typeof offer === 'object') offers.push(offer);
+    });
+  };
+  (jsonLdNodes || []).forEach((node) => {
+    if (!node) return;
+    addOffers(node.offers);
+    if (normalizeTypes(node['@type']).includes('ProductGroup') && Array.isArray(node.hasVariant)) {
+      node.hasVariant.forEach((variant) => addOffers(variant && variant.offers));
+    }
+  });
+  return offers;
+}
+
+function offerPriceCurrency(offer) {
+  const priceSpec = offer.priceSpecification && typeof offer.priceSpecification === 'object' ? offer.priceSpecification : {};
+  const priceRaw = offer.price ?? priceSpec.price;
+  const currencyRaw = offer.priceCurrency ?? priceSpec.priceCurrency;
+  if (priceRaw === undefined || priceRaw === null || String(priceRaw).trim() === '') return null;
+  return { priceRaw: String(priceRaw), currencyRaw: currencyRaw ? String(currencyRaw) : '' };
+}
+
+// Parses a raw amount that may already be a plain machine-formatted number
+// ("1725.00", from JSON-LD/meta) or a display string with a currency symbol
+// and thousands separators ("£1,725.00", from DOM text) — both go through
+// the same locale-aware parser used for the D-column manual cost input.
+function parsePriceAmount(rawText) {
+  const normalized = String(rawText === undefined || rawText === null ? '' : rawText).normalize('NFKC').trim();
+  if (!normalized) return null;
+  const numericText = normalized.replace(/[^0-9.,]/g, '');
+  return parseLocalizedNumber(numericText);
+}
+
+// Currency symbols/codes only — GBP and EUR are the only ones this project's
+// pricing pipeline converts automatically; anything else (or nothing
+// detected) is left for src/index.js's existing
+// `要確認：通貨換算が必要（XXX→GBP）` handling to catch.
+function normalizeCurrencyText(primaryRaw, fallbackText) {
+  const primary = String(primaryRaw || '').trim();
+  if (primary) {
+    const upper = primary.toUpperCase();
+    if (/^[A-Z]{3}$/.test(upper)) return upper;
+    if (CURRENCY_SYMBOL_MAP[primary[0]]) return CURRENCY_SYMBOL_MAP[primary[0]];
+  }
+  const combined = `${primary} ${fallbackText || ''}`;
+  for (const [symbol, code] of Object.entries(CURRENCY_SYMBOL_MAP)) {
+    if (combined.includes(symbol)) return code;
+  }
+  const codeMatch = combined.toUpperCase().match(/\b(GBP|EUR|USD|JPY)\b/);
+  return codeMatch ? codeMatch[1] : '';
+}
+
+// Price/currency resolution in trust order: (1) JSON-LD offers — structured
+// data, taken as-is; (2) meta tags — structured data, taken as-is; (3) DOM
+// price text — last resort, flagged with GENERIC_DOM_PRICE_WARNING because a
+// page's raw text can just as easily be a sale/related-product/"from £X"
+// price as the real one. Each level independently drops candidates below
+// GENERIC_PRICE_MIN_PLAUSIBLE_AMOUNT (a likely decimal/thousands misread)
+// before falling through to the next level.
+function resolvePriceAndCurrency(data) {
+  const rawOffers = collectRawOffers(data.jsonLdNodes).map(offerPriceCurrency).filter(Boolean);
+  const parsedOffers = rawOffers
+    .map((offer) => ({
+      amount: parsePriceAmount(offer.priceRaw),
+      currency: normalizeCurrencyText(offer.currencyRaw, offer.priceRaw)
+    }))
+    .filter((offer) => Number.isFinite(offer.amount) && offer.amount >= GENERIC_PRICE_MIN_PLAUSIBLE_AMOUNT);
+
+  if (parsedOffers.length > 0) {
+    const [chosen, ...rest] = parsedOffers;
+    if (rest.length > 0) {
+      console.log(`汎用価格抽出: JSON-LD offersに${parsedOffers.length}件の候補、最初の有効な価格(${chosen.amount} ${chosen.currency || '通貨不明'})を採用（残り${rest.length}件は不採用: ${rest.map((o) => `${o.amount} ${o.currency || '通貨不明'}`).join(', ')}）`);
+    }
+    return { price: chosen.amount, currency: chosen.currency, source: 'json-ld-offers', warnings: [] };
+  }
+
+  const metaAmountRaw = data.priceMeta.metaAmount || data.priceMeta.itemPropAmount;
+  const metaAmount = parsePriceAmount(metaAmountRaw);
+  if (Number.isFinite(metaAmount) && metaAmount >= GENERIC_PRICE_MIN_PLAUSIBLE_AMOUNT) {
+    const currency = normalizeCurrencyText(data.priceMeta.metaCurrency || data.priceMeta.itemPropCurrency, metaAmountRaw);
+    return { price: metaAmount, currency, source: 'meta', warnings: [] };
+  }
+
+  const domAmount = parsePriceAmount(data.priceDomText);
+  if (Number.isFinite(domAmount) && domAmount >= GENERIC_PRICE_MIN_PLAUSIBLE_AMOUNT) {
+    const currency = normalizeCurrencyText('', data.priceDomText);
+    console.log(`汎用価格抽出: 構造化データから価格が見つからず、DOMテキスト "${data.priceDomText}" から採用（要確認扱い）`);
+    return { price: domAmount, currency, source: 'dom-text', warnings: [GENERIC_DOM_PRICE_WARNING] };
+  }
+
+  return { price: null, currency: '', source: '', warnings: [] };
+}
+
+// Assembles the generic-fallback product-detail result from the raw data
+// collected by scrapeProductPage()'s page.evaluate() above. Kept outside
+// page.evaluate() (plain Node.js) so the JSON-LD node selection, offer
+// collection, and price parsing are unit-testable and reuse
+// parseLocalizedNumber from src/utils.js — page.evaluate() callbacks run in
+// the browser and cannot call back into Node.js code.
+function resolveGenericProductFields(data) {
+  const { node, groupNode } = selectBestJsonLdCandidate(data.jsonLdNodes);
+  const priceResult = resolvePriceAndCurrency(data);
+  const sku = variantPreferredField(node, groupNode, 'sku');
+  const mpn = variantPreferredField(node, groupNode, 'mpn');
+  const productID = variantPreferredField(node, groupNode, 'productID')
+    || jsonLdString(groupNode && groupNode.productGroupID);
+
+  return {
+    name: groupPreferredField(node, groupNode, 'name') || data.nameFallback,
+    brand: groupPreferredField(node, groupNode, 'brand') || data.labeledBrand || data.metaBrand,
+    description: groupPreferredField(node, groupNode, 'description')
+      || data.ogDescription
+      || data.metaDescription
+      || data.domDescriptionFallback,
+    color: variantPreferredField(node, groupNode, 'color') || data.labeledColor,
+    material: groupPreferredField(node, groupNode, 'material') || data.labeledMaterial,
+    category: groupPreferredField(node, groupNode, 'category') || data.labeledCategory || data.metaCategory,
+    sku,
+    mpn,
+    productCode: sku || mpn || productID,
+    price: priceResult.price || '',
+    currency: priceResult.currency || '',
+    priceSource: priceResult.source,
+    warnings: priceResult.warnings
+  };
 }
 
 function hasValue(value) {
@@ -255,6 +541,14 @@ function hasValue(value) {
 function mergeScrapedData(genericData, shopData) {
   const merged = { ...genericData };
   for (const [key, value] of Object.entries(shopData)) {
+    // Warnings are additive rather than "shop wins": a shop-specific
+    // extractor's warning (e.g. a currency-mismatch check) and the generic
+    // fallback's own (e.g. GENERIC_DOM_PRICE_WARNING) can both be relevant
+    // for the same page, and neither should silently drop the other.
+    if (key === 'warnings') {
+      merged.warnings = uniq([...(genericData.warnings || []), ...(value || [])]);
+      continue;
+    }
     if (hasValue(value)) {
       merged[key] = value;
     } else if (!(key in merged)) {
@@ -516,5 +810,14 @@ function safeHostname(imageUrl) {
 module.exports = {
   scrapeProducts,
   scrapeProductPage,
-  scrapeImagesFromUrl
+  scrapeImagesFromUrl,
+  // Exported for unit verification of the generic-fallback price/currency
+  // extraction (not used elsewhere) — mirrors pricing.js's convention of
+  // exporting internal helpers for testability.
+  resolveGenericProductFields,
+  resolvePriceAndCurrency,
+  normalizeCurrencyText,
+  parsePriceAmount,
+  selectBestJsonLdCandidate,
+  buildJsonLdCandidates
 };
