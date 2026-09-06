@@ -231,6 +231,19 @@ function isFranceSourcedNote(note) {
   return FRANCE_NOTE_PATTERN.test(text) && PURCHASE_NOTE_PATTERN.test(text);
 }
 
+// Client-confirmed rule: every row is treated as UK-shipped (and gets the flat
+// packaging fee below) unless the C-column note explicitly says France
+// shipping. Unlike isFranceSourcedNote() above (Moncler-only flat
+// international-shipping rate, which also requires a purchase-related
+// keyword), this check is brand/shop-agnostic and matches on "フランス" alone.
+function isFranceShippingNote(note) {
+  return FRANCE_NOTE_PATTERN.test(String(note || ''));
+}
+
+// Client-confirmed instruction (2026-09-06): UK-shipped orders add a flat
+// JPY 2000 packaging fee to the total purchase cost used for pricing.
+const UK_PACKAGING_FEE_JPY = 2000;
+
 function calculatePricing({ sourceUrl, brandName, costGbp, category, productData = {}, settings = {}, note = '' }) {
   const warnings = [];
   const blockingWarnings = [];
@@ -312,8 +325,9 @@ function calculatePricing({ sourceUrl, brandName, costGbp, category, productData
     };
   }
 
+  const packagingFeeJpy = isFranceShippingNote(note) ? 0 : UK_PACKAGING_FEE_JPY;
   const costWithShopShippingGbp = normalizedCost + shopShippingGbp;
-  const totalCostJpy = Math.ceil((costWithShopShippingGbp + internationalShippingGbp) * pricingSettings.gbpJpyRate);
+  const totalCostJpy = Math.ceil((costWithShopShippingGbp + internationalShippingGbp) * pricingSettings.gbpJpyRate) + packagingFeeJpy;
   const minimumListingPrice = totalCostJpy / (1 - pricingSettings.buymaFeeRate - brandResult.marginRate);
   const listingPriceJpy = roundUpListingPrice(minimumListingPrice);
   const buymaFeeJpy = listingPriceJpy * pricingSettings.buymaFeeRate;
@@ -743,6 +757,8 @@ module.exports = {
   PROVISIONAL_SHIPPING_SHOPS,
   FLAT_INTERNATIONAL_SHIPPING_GBP,
   INTERNATIONAL_SHIPPING_GBP,
+  UK_PACKAGING_FEE_JPY,
+  isFranceShippingNote,
   calculatePricing,
   calculateShopShipping,
   normalizePricingSettings,

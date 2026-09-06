@@ -333,13 +333,36 @@ Current implemented formula:
 
 ```text
 costWithShopShippingGbp = productCostGbp + shopShippingGbp
-totalCostJpy = ceil((costWithShopShippingGbp + internationalShippingGbp) * GBP_JPY_RATE)
+totalCostJpy = ceil((costWithShopShippingGbp + internationalShippingGbp) * GBP_JPY_RATE) + packagingFeeJpy
 ```
 
 Important:
 
 - Do not use the older formula that added customs duty or consumption tax to total cost.
 - `customsDutyJpy` and `consumptionTaxJpy` are currently returned as 0.
+- `packagingFeeJpy` is the UK packaging fee described below. It is folded directly
+  into `totalCostJpy` — there is no separate sheet column for it, and J
+  (`原価＋ショップ配送料（GBP）`) and K (`国際送料（GBP）`) are unaffected. It only shows
+  up indirectly through a higher L (`出品価格`) for the same M (`利益率`) target.
+
+### UK Packaging Fee
+
+Client-confirmed instruction (2026-09-06): every row is treated as UK-shipped by
+default and gets a flat `UK_PACKAGING_FEE_JPY` (JPY 2000) added to
+`totalCostJpy`, **unless** the C-column note (`備考欄`) indicates France
+shipping.
+
+France-shipping detection for this rule is `isFranceShippingNote(note)` in
+`src/pricing.js`: a simple test for the substring `フランス` anywhere in the
+C-column note, no other keyword required. This is intentionally
+brand/shop-agnostic — it is unrelated to `isFranceSourcedNote()` (used only for
+the Moncler flat GBP 50 international-shipping rate above), which requires
+both `フランス` and a purchase-related keyword (`買付`/`買い付け`/`仕入`) and only
+applies when brand is Moncler. A row can trigger one, both, or neither check
+independently.
+
+Do not change the JPY 2000 amount or the note-matching pattern without an
+explicit client instruction.
 
 ## Listing Price
 
