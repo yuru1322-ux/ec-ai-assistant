@@ -26,6 +26,7 @@ browser-automation detection specifically:
 | bergdorfgoodman.com | HTTP 403 | HTTP 403 | Tested as an N-column image-source candidate |
 | circle-fashion.com | HTTP 403 | HTTP 403 | Response body is a Cloudflare "Just a moment..." challenge page. Tested as an N-column image-source candidate; also registered in `SHOP_DOMAINS`/`SHOP_SHIPPING_RULES` (`CIRCLE FASHION`) for A-column shipping calc — that registration is unaffected, this note is about scraping specifically |
 | vitkac.com | HTTP 403 | HTTP 403 | Also noted in the flannels.com investigation above; registered in `SHOP_SHIPPING_RULES` (`VITKAC`) for A-column shipping calc |
+| printemps.com | HTTP 403 | HTTP 403 | Response body is Printemps' own WAF block page ("Unusual activity has been detected on this IP address... blocked automatically by our firewall"), not a Cloudflare/Akamai challenge — an explicit IP-level block, not browser-automation detection. Registered in `SHOP_DOMAINS`/`SPECIAL_SHOPS` (`PRINTEMPS`) — shop shipping was already manual-entry-only regardless of this |
 
 Client decision (confirmed): rows sourced from or referencing these sites
 use manual handling (cost/description/image entry) rather than automatic
