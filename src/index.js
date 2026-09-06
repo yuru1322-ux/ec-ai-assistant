@@ -4,7 +4,7 @@ const config = require('./config');
 const Status = require('./status');
 const { ensureDir, parseLocalizedNumber } = require('./utils');
 const { writeErrorLog } = require('./logger');
-const { getSheetsClient, readProducts, readSettings, updateStatus, writeResult } = require('./sheets');
+const { getSheetsClient, readProducts, readSettings, updateStatus, writeResult, setInfoSourceManualImageHighlight } = require('./sheets');
 const { scrapeProductPage, scrapeImagesFromUrl } = require('./scraper');
 const { downloadImages, saveSizeGuideImage } = require('./images');
 const { generateBuymaContent } = require('./openaiClient');
@@ -130,6 +130,16 @@ async function processProduct({ browser, sheets, settings, product }) {
       if (sizeGuidePath) console.log(`サイズガイド保存: ${sizeGuidePath}`);
     }
     const imageFileNames = getImageFileNames(imagePaths);
+
+    // Visual flag only (cell formatting, never the N-column value itself):
+    // highlight N orange when its URL was used but yielded zero images, so a
+    // future manual fetch is easy to spot; clear it once images come
+    // through (e.g. after a scraper fix makes a previously-failing site
+    // work). Best-effort — a formatting failure shouldn't abort the row.
+    if (infoSourceUrl) {
+      await setInfoSourceManualImageHighlight(sheets, product.rowNumber, imageFileNames.length === 0)
+        .catch((error) => console.error(`N列ハイライト更新エラー: ${product.rowNumber}行目`, error.message));
+    }
 
     const generated = await generateBuymaContent({
       sourceUrl: product.url,

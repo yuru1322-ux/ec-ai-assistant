@@ -668,7 +668,9 @@ async function extractGenericImages(page) {
       return candidates.length ? candidates[0].candidateUrl : '';
     };
 
-    const jsonLd = Array.from(document.querySelectorAll('script[type="application/ld+json"]'))
+    const normalizeJsonLdTypes = (type) => (!type ? [] : (Array.isArray(type) ? type : [type]));
+
+    const jsonLdNodes = Array.from(document.querySelectorAll('script[type="application/ld+json"]'))
       .map((script) => {
         try {
           return JSON.parse(script.textContent || '{}');
@@ -678,7 +680,51 @@ async function extractGenericImages(page) {
       })
       .filter(Boolean)
       .flatMap((item) => Array.isArray(item) ? item : (Array.isArray(item['@graph']) ? item['@graph'] : [item]))
-      .find((item) => item && (item['@type'] === 'Product' || (Array.isArray(item['@type']) && item['@type'].includes('Product')))) || {};
+      .filter((item) => {
+        const types = normalizeJsonLdTypes(item && item['@type']);
+        return types.includes('Product') || types.includes('ProductGroup');
+      });
+
+    // Same candidate set as scrapeProductPage()'s product-detail extraction
+    // (a ProductGroup, e.g. Shopify's multi-variant pattern, plus one
+    // candidate per hasVariant Product): a ProductGroup's own `image` is
+    // often absent even when every variant carries the real gallery (e.g.
+    // wakakuu.com), so the variant must be checked too. Scored by richness
+    // rather than matching the current page, same as scoreProductNode() in
+    // src/shops/phaseEight.js, so an unrelated Product block elsewhere on
+    // the page (a recommendations widget) doesn't win over the real one.
+    const jsonLdCandidates = [];
+    jsonLdNodes.forEach((node, nodeIndex) => {
+      const types = normalizeJsonLdTypes(node['@type']);
+      if (types.includes('ProductGroup')) {
+        jsonLdCandidates.push({ node, groupNode: null, nodeIndex });
+        if (Array.isArray(node.hasVariant)) {
+          node.hasVariant.forEach((variant, variantIndex) => {
+            if (variant && normalizeJsonLdTypes(variant['@type']).includes('Product')) {
+              jsonLdCandidates.push({ node: variant, groupNode: node, nodeIndex: nodeIndex + (variantIndex + 1) / 1000 });
+            }
+          });
+        }
+      } else if (types.includes('Product')) {
+        jsonLdCandidates.push({ node, groupNode: null, nodeIndex });
+      }
+    });
+
+    const scoreJsonLdCandidate = ({ node, groupNode }) => {
+      const images = node.image || (groupNode && groupNode.image);
+      let score = Array.isArray(images) ? images.length : (images ? 1 : 0);
+      if (node.offers || (groupNode && groupNode.offers)) score += 20;
+      const description = String((groupNode && groupNode.description) || node.description || '');
+      score += Math.min(description.length, 500) / 50;
+      if (node.sku || node.mpn) score += 5;
+      return score;
+    };
+
+    const bestJsonLdCandidate = jsonLdCandidates
+      .map((candidate) => ({ ...candidate, score: scoreJsonLdCandidate(candidate) }))
+      .sort((a, b) => b.score - a.score || a.nodeIndex - b.nodeIndex)[0] || { node: {}, groupNode: null };
+
+    const jsonLd = { image: bestJsonLdCandidate.node.image || (bestJsonLdCandidate.groupNode && bestJsonLdCandidate.groupNode.image) };
 
     const jsonLdRaw = Array.isArray(jsonLd.image) ? jsonLd.image : [jsonLd.image];
     const jsonLdImages = jsonLdRaw

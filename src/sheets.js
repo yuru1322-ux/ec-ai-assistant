@@ -22,6 +22,68 @@ function cellValue(value) {
   return value === undefined || value === null ? '' : value;
 }
 
+// Column N (0-indexed 13) — 情報取得元URL. Formatting only; the cell's text
+// value is never written here (N stays a client input column).
+const INFO_SOURCE_COLUMN_INDEX = 13;
+// Google Sheets' own "light orange 3" preset swatch — visible but not so
+// bright it fights with the URL text still shown in the cell.
+const MANUAL_IMAGE_HIGHLIGHT_COLOR = { red: 0.988, green: 0.898, blue: 0.804 };
+const NO_HIGHLIGHT_COLOR = { red: 1, green: 1, blue: 1 };
+
+const sheetIdCache = new Map();
+
+async function getSheetId(sheets, sheetName) {
+  const cacheKey = `${config.google.sheetId}::${sheetName}`;
+  if (sheetIdCache.has(cacheKey)) return sheetIdCache.get(cacheKey);
+
+  const response = await sheets.spreadsheets.get({
+    spreadsheetId: config.google.sheetId,
+    fields: 'sheets.properties'
+  });
+  const match = (response.data.sheets || [])
+    .map((sheet) => sheet.properties)
+    .find((properties) => properties && properties.title === sheetName);
+  if (!match) {
+    throw new Error(`シート「${sheetName}」が見つかりません`);
+  }
+  sheetIdCache.set(cacheKey, match.sheetId);
+  return match.sheetId;
+}
+
+// Colors the N-column cell for a row to flag "image retrieval needs manual
+// follow-up" (needsManualImages: true) or clears it back to no highlight
+// once images come through successfully (false) — e.g. after a scraper fix
+// makes a previously-failing site work. Only ever touches cell formatting,
+// never the cell's value.
+async function setInfoSourceManualImageHighlight(sheets, rowNumber, needsManualImages) {
+  const sheetId = await getSheetId(sheets, config.google.sheetName);
+  const rowIndex = rowNumber - 1;
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId: config.google.sheetId,
+    requestBody: {
+      requests: [
+        {
+          repeatCell: {
+            range: {
+              sheetId,
+              startRowIndex: rowIndex,
+              endRowIndex: rowIndex + 1,
+              startColumnIndex: INFO_SOURCE_COLUMN_INDEX,
+              endColumnIndex: INFO_SOURCE_COLUMN_INDEX + 1
+            },
+            cell: {
+              userEnteredFormat: {
+                backgroundColor: needsManualImages ? MANUAL_IMAGE_HIGHLIGHT_COLOR : NO_HIGHLIGHT_COLOR
+              }
+            },
+            fields: 'userEnteredFormat.backgroundColor'
+          }
+        }
+      ]
+    }
+  });
+}
+
 async function getSheetsClient() {
   let auth;
 
@@ -164,5 +226,6 @@ module.exports = {
   readProducts,
   readSettings,
   updateStatus,
-  writeResult
+  writeResult,
+  setInfoSourceManualImageHighlight
 };
