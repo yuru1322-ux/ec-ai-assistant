@@ -8,6 +8,32 @@ Do not bypass bot protection, Akamai, Cloudflare, or other access control system
 
 - Zalando may fail due to Akamai or product main area detection.
 - Selfridges is currently excluded from automatic scraping and stops with `要確認：Selfridgesページ取得不可`.
+- See "Confirmed-Blocked Sites" below for a fuller list verified directly, client-confirmed as manual-handling.
+
+### Confirmed-Blocked Sites (client uses manual handling — do not re-investigate)
+
+Each of these was confirmed blocked with **both** `curl` (no User-Agent
+spoofing, no stealth plugins, no proxy — the same plain request style used
+in the flannels.com investigation above) **and** Playwright, so this is
+access-control-level blocking (IP/request-pattern based), not
+browser-automation detection specifically:
+
+| Site | curl | Playwright | Notes |
+| --- | --- | --- | --- |
+| moncler.com (official) | HTTP 403 | HTTP 403 | Also noted in the flannels.com investigation above |
+| selfridges.com | HTTP 403 | HTTP 403 | Response body is a Cloudflare "Attention Required!" challenge page; already handled by `src/shops/selfridges.js` (see `SELFRIDGES_PAGE_FAILURE_STATUS`) |
+| mrporter.com | HTTP 403 | HTTP 403 | Registered in `SHOP_SHIPPING_RULES` (`MR PORTER`) for shipping calc, but its product pages cannot be scraped |
+| bergdorfgoodman.com | HTTP 403 | HTTP 403 | Tested as an N-column image-source candidate |
+| circle-fashion.com | HTTP 403 | HTTP 403 | Response body is a Cloudflare "Just a moment..." challenge page. Tested as an N-column image-source candidate; also registered in `SHOP_DOMAINS`/`SHOP_SHIPPING_RULES` (`CIRCLE FASHION`) for A-column shipping calc — that registration is unaffected, this note is about scraping specifically |
+| vitkac.com | HTTP 403 | HTTP 403 | Also noted in the flannels.com investigation above; registered in `SHOP_SHIPPING_RULES` (`VITKAC`) for A-column shipping calc |
+
+Client decision (confirmed): rows sourced from or referencing these sites
+use manual handling (cost/description/image entry) rather than automatic
+scraping — the same pattern as mytheresa.com's semi-automatic workflow
+described below. Do not spend further effort trying to reach these sites;
+re-verifying with a new technique (different User-Agent, headers, proxy,
+etc.) would cross into bot-protection bypass, which this project does not
+do regardless of outcome.
 
 ### Region And Locale
 
