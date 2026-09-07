@@ -163,16 +163,18 @@ Examples:
 - SELFRIDGES: GBP 0 fixed, but Selfridges scraping is currently disabled by protection logic
 - PHASE EIGHT: free at GBP 150+, otherwise GBP 4
 - MONCLER: GBP 0 fixed — confirmed by the client (see "Flat International Shipping" below for its international-shipping treatment)
-- MINOX BOUTIQUE: GBP 0 fixed — **provisional value**. Free delivery over GBP 300 is confirmed from the site's own banner; the below-threshold fee is not yet confirmed
+- MINOX BOUTIQUE: free at GBP 300+, otherwise GBP 8 — confirmed via the 2026-09 shop shipping list
+- STUDIO: GBP 5 fixed — confirmed via the 2026-09 shop shipping list; no domain is registered in `SHOP_DOMAINS` yet, so URLs from this shop will not auto-resolve to it until a domain is confirmed and added
 
 Do not add or change shipping rules without user instruction.
 
 ### Provisional Shipping Warning
 
 `PROVISIONAL_SHIPPING_SHOPS` in `src/pricing.js` lists shops whose shipping rule is a
-placeholder rather than a confirmed value (currently `MINOX BOUTIQUE` only — `MONCLER`
-was removed once the client confirmed its shipping terms). When the resolved shop is
-in this set, `calculatePricing()` adds a non-blocking warning:
+placeholder rather than a confirmed value. It is currently empty — `MONCLER` was
+removed once the client confirmed its shipping terms, and `MINOX BOUTIQUE` was
+removed once its confirmed rule arrived via the 2026-09 shop shipping list. When a
+shop is added to this set, `calculatePricing()` adds a non-blocking warning:
 
 ```text
 要確認：ショップ送料が暫定値（0）です

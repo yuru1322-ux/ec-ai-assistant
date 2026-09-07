@@ -140,9 +140,7 @@ const SHOP_SHIPPING_RULES = {
   LIBERTY: { freeThreshold: 100, below: 6 },
   'LN-CC': { fixed: 7 },
   MIINTO: { fixed: 6 },
-  // 暫定値。実際の送料条件が判明したら更新すること
-  // MINOX BOUTIQUE は £300以上で送料無料、未満の額は未確認
-  'MINOX BOUTIQUE': { fixed: 0 },
+  'MINOX BOUTIQUE': { freeThreshold: 300, below: 8 },
   // 暫定値。実際の送料条件が判明したら更新すること
   MONCLER: { fixed: 0 },
   MYTHERESA: { freeThreshold: 300, below: 8 },
@@ -156,6 +154,7 @@ const SHOP_SHIPPING_RULES = {
   SELFRIDGES: { fixed: 0 },
   'SISTER JANE': { freeThreshold: 60, below: 5 },
   SSENSE: { fixed: 17 },
+  STUDIO: { fixed: 5 },
   'TED BAKER': { freeThreshold: 150, below: 4 },
   'THE BUSINESS FASHION': { freeThreshold: 500, below: 6 },
   'THE OUTNET': { freeThreshold: 200, below: 7 },
@@ -205,9 +204,7 @@ const PROFIT_UPPER_LIMITS = {
   0.15: 0.17
 };
 
-const PROVISIONAL_SHIPPING_SHOPS = new Set([
-  'MINOX BOUTIQUE'
-]);
+const PROVISIONAL_SHIPPING_SHOPS = new Set([]);
 
 // Shops whose international shipping is a flat GBP amount regardless of category
 // or price bracket (client-confirmed operational rule), bypassing the normal
