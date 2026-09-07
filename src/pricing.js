@@ -5,7 +5,6 @@ const BRAND_MARGIN_ZONES = [
     marginRate: 0.20,
     brands: [
       'BOTTEGA VENETA',
-      'MAX MARA',
       'RICK OWENS',
       'TOD’S',
       "TOD'S",
@@ -17,14 +16,24 @@ const BRAND_MARGIN_ZONES = [
       'TRUE RELIGION',
       'GHOSPELL',
       'PHASE EIGHT',
-      'MONCLER',
       'ALAIA',
       'VIVIENNE WESTWOOD',
       'SELF-PORTRAIT',
       'SELF PORTRAIT',
-      'HOBBS LONDON',
+      'HOBBS LONDON'
+    ]
+  },
+  {
+    marginRate: 0.18,
+    brands: [
+      'HERNO',
+      'MAX MARA',
+      'CANADA GOOSE',
+      'SISTER JANE',
       'GUCCI',
-      'SISTER JANE'
+      'TATRAS',
+      'MACKAGE',
+      'MONCLER'
     ]
   },
   {
@@ -201,6 +210,7 @@ const INTERNATIONAL_SHIPPING_GBP = {
 
 const PROFIT_UPPER_LIMITS = {
   0.20: 0.22,
+  0.18: 0.20,
   0.15: 0.17
 };
 

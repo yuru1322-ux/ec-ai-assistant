@@ -67,10 +67,9 @@ Unregistered brands add:
 
 ### 20% Zone
 
-All registered brands use a 20% margin zone (raised from the former 18% zone and most of the former 15% zone), except the 15% Zone brands below:
+Confirmed via the 2026-09 profit margin rules document (「利益率設定ルール」):
 
 - BOTTEGA VENETA
-- MAX MARA
 - RICK OWENS
 - TOD’S
 - TOD'S
@@ -82,14 +81,26 @@ All registered brands use a 20% margin zone (raised from the former 18% zone and
 - TRUE RELIGION
 - GHOSPELL
 - PHASE EIGHT
-- MONCLER
 - ALAIA
 - VIVIENNE WESTWOOD
 - SELF-PORTRAIT
 - SELF PORTRAIT
 - HOBBS LONDON
-- GUCCI
+
+### 18% Zone
+
+Added by the 2026-09 profit margin rules document. MAX MARA, GUCCI, SISTER JANE, and
+MONCLER move here from the former 20% zone; HERNO, CANADA GOOSE, TATRAS, and MACKAGE
+are new additions:
+
+- HERNO
+- MAX MARA
+- CANADA GOOSE
 - SISTER JANE
+- GUCCI
+- TATRAS
+- MACKAGE
+- MONCLER
 
 ### 15% Zone
 
@@ -400,6 +411,7 @@ If profit rate is below the brand minimum:
 Upper-limit guide:
 
 - 20% zone: warning if over 22%
+- 18% zone: warning if over 20%
 - 15% zone (JADED LONDON, ELIZABETH SCARLETT): warning if over 17%
 
 Warning:
