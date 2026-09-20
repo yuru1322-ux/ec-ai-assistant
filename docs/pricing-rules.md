@@ -404,6 +404,13 @@ For product name, priority is:
 
 This keeps explicit accessory names such as necklace/ring/earrings correct while avoiding accidental matches in description text.
 
+### Apparel keywords
+
+`shorts` (plural only, so `short strap` / `short sleeve` do not match) is an
+apparel keyword. A product whose site category is `Jogger Shorts` used to fall
+through to the description text and be classified `バッグ・靴` because of
+`pocket bags`, giving the wrong international shipping.
+
 ### URL collection segment (Collard Manson only)
 
 For `collardmanson.co.uk`, the `/collections/{handle}/` part of the URL is

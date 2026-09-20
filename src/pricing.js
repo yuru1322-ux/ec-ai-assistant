@@ -689,6 +689,7 @@ const CATEGORY_PATTERNS = {
     /\bpolos?\b/i,
     /\bsweatshirts?\b/i,
     /\bhoodies?\b/i,
+    /\bshorts\b/i,
     /アパレル/,
     /服/,
     /コート/,

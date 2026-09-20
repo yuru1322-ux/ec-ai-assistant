@@ -168,12 +168,14 @@ function htmlToLines(html) {
   const text = String(html || '')
     .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/<(script|style)[\s\S]*?<\/\1>/gi, '')
-    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<br(?:\s[^>]*)?\/?>/gi, '\n')
     .replace(/<\/?(?:p|div|li|ul|ol|h[1-6]|tr|table|section)(?:\s[^>]*)?>/gi, '\n')
     .replace(/<[^>]+>/g, '');
   return decodeHtmlEntities(text)
     .split(/\n+/)
     .map(cleanText)
+    // Some descriptions are written as "* color: pearl" bullet lines.
+    .map((line) => line.replace(/^[*•・]\s*/, ''))
     .filter(Boolean);
 }
 
@@ -217,13 +219,22 @@ function splitComposition(text) {
     .filter(Boolean);
 }
 
+// Returns the composition parts and the description lines they came from (those
+// lines are metadata, not product features).
 function extractComposition(lines) {
   const labelled = lines.map((line) => line.match(/^compositions?\s*[:：]\s*(.*)$/i)).find(Boolean);
-  if (labelled && cleanText(labelled[1])) return splitComposition(labelled[1]);
-  // No "Composition:" label: only short, non-sentence lines that carry a percentage.
-  return lines
-    .filter((line) => /\d+\s*%/.test(line) && line.length <= 80 && !/[.!?]$/.test(line))
-    .flatMap(splitComposition);
+  if (labelled && cleanText(labelled[1])) {
+    return { parts: splitComposition(labelled[1]), sourceLines: [labelled[0]] };
+  }
+  // No "Composition:" label: only short, non-sentence lines that carry a percentage
+  // (e.g. "material: upper 100% cow real fur", "lining: 100% cow leather"). A leading
+  // "material:" is dropped and "label: N%" becomes "Label N%".
+  const sourceLines = lines.filter((line) => /\d+\s*%/.test(line) && line.length <= 80 && !/[.!?]$/.test(line));
+  const parts = sourceLines
+    .map((line) => line.replace(/^materials?\s*[:：]\s*/i, '').replace(/^([A-Za-z][A-Za-z ]*?)\s*[:：]\s*(?=\d)/, '$1 '))
+    .flatMap(splitComposition)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1));
+  return { parts, sourceLines };
 }
 
 function labelledValue(lines, labelPattern) {
@@ -244,8 +255,8 @@ function findSeason(tags, lines) {
 }
 
 function parseDescription(lines, { brand, tags, sku } = {}) {
-  const composition = extractComposition(lines);
-  const compositionSet = new Set(composition.map((line) => line.toLowerCase()));
+  const { parts: composition, sourceLines: compositionSourceLines } = extractComposition(lines);
+  const compositionSet = new Set([...composition, ...compositionSourceLines].map((line) => line.toLowerCase()));
 
   const madeIn = lines.map((line) => line.match(/^made in\s+(.+)$/i)).find(Boolean);
   const countryOfOrigin = madeIn ? titleCase(madeIn[1]) : '';
@@ -292,7 +303,14 @@ function parseDescription(lines, { brand, tags, sku } = {}) {
 function buildSizeVariants(productJson, domSizeOptions) {
   const variants = productJson && Array.isArray(productJson.variants) ? productJson.variants : [];
   const options = productJson && Array.isArray(productJson.options) ? productJson.options : [];
-  const sizeIndex = options.findIndex((option) => /size|サイズ/i.test(optionName(option)));
+  let sizeIndex = options.findIndex((option) => /size|サイズ/i.test(optionName(option)));
+  // Some products name their only option "Title" while its values are the sizes
+  // ("37 EU", "38 EU", ...). Shopify's placeholder for a single-variant product is
+  // "Default Title"; that is not a size.
+  if (sizeIndex < 0 && options.length === 1 && /^title$/i.test(optionName(options[0]))) {
+    const values = Array.isArray(options[0].values) ? options[0].values.map(cleanText) : [];
+    if (values.length > 0 && !values.every((value) => /^default title$/i.test(value))) sizeIndex = 0;
+  }
 
   const bySize = new Map();
   if (variants.length > 0 && sizeIndex >= 0) {

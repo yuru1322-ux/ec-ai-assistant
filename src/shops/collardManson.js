@@ -188,7 +188,7 @@ function htmlToLines(html) {
   const text = String(html || '')
     .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/<(script|style)[\s\S]*?<\/\1>/gi, '')
-    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<br(?:\s[^>]*)?\/?>/gi, '\n')
     .replace(/<\/?(?:p|div|li|ul|ol|h[1-6]|tr|table|section)(?:\s[^>]*)?>/gi, '\n')
     .replace(/<[^>]+>/g, '');
   return decodeHtmlEntities(text)

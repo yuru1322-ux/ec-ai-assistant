@@ -608,6 +608,14 @@ Product data:
   by whitespace and a letter, or at the end of the line; hyphens inside a word
   are kept) with a space added after `%`:
   `Upper 100% Calf Leather`, `Lining 100% Calf Leather`, ...
+  Without a `Composition:` label, short lines carrying a percentage
+  (`* material: upper 100% cow real fur`, `* lining: 100% cow leather`) are used:
+  a leading `material:` is dropped and `label: N%` becomes `Label N%`. Those lines
+  are metadata, not `features`
+- Line splitting: `<br>` tags with attributes (`<br data-mce-fragment="1">`) split
+  lines like a plain `<br>`, and a leading `*` / `•` bullet marker is removed, so
+  `* color: pearl` is read as an explicit `Color:` line (the same `<br>` fix is in
+  the Collard Manson scraper)
 - Country of origin: `Made in <X>` -> `countryOfOrigin: 'Italy'`; the page text
   is kept in `madeIn: 'Made in Italy'`
 - Season: a tag such as `AW26`, else a season code in the description text
@@ -617,8 +625,10 @@ Product data:
   so the status reads `要確認：カラー取得失敗`)
 - Sizes: JSON variants on the `Size` option, labels kept as the page writes them
   (`42 EU`): `sizes`, `availableSizes`, `sizeVariants` (`size`, `available`,
-  `sku`, `quantity`), `availability`. DOM fallback reads only the
-  `variant-picker` radios (`data-option-available`)
+  `sku`, `quantity`), `availability`. Some products name their only option `Title`
+  while its values are the sizes (`37 EU`, ...); that option is read as the size
+  option unless its only value is Shopify's `Default Title` placeholder. DOM
+  fallback reads only the `variant-picker` radios (`data-option-available`)
 - Sale: `onSale` from the JSON compare-at price (product or any variant) being
   higher than the price; `null` (unknown, not guessed) when the JSON could not be
   read, because the page also prints compare-at prices for related products
