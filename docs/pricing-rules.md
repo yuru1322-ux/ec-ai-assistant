@@ -227,6 +227,7 @@ Examples:
 - SELFRIDGES: GBP 0 fixed, but Selfridges scraping is currently disabled by protection logic
 - PHASE EIGHT: free at GBP 150+, otherwise GBP 4
 - MONCLER: GBP 0 fixed — confirmed by the client (see "Flat International Shipping" below for its international-shipping treatment)
+- LAB STORE WORLD: GBP 10 fixed — domains `labstorelondon.com` and `labstoreworld.com`
 - MINOX BOUTIQUE: free at GBP 300+, otherwise GBP 8 — confirmed via the 2026-09 shop shipping list
 - STUDIO: GBP 5 fixed — confirmed via the 2026-09 shop shipping list; no domain is registered in `SHOP_DOMAINS` yet, so URLs from this shop will not auto-resolve to it until a domain is confirmed and added
 
@@ -364,11 +365,13 @@ Possible leather shoes:
 
 This warning stops the calculation (`canCalculate: false`). The formulas contain
 no duty term (`customsDutyJpy` is always 0), so it exists to make the operator
-check duty by hand. **Collard Manson is exempt**
+check duty by hand. **Collard Manson and LAB STORE WORLD are exempt**
 (`LEATHER_SHOES_DUTY_CHECK_EXEMPT_SHOPS` in `src/pricing.js`): client-confirmed
-that no duty markup is needed, so its leather shoes/boots are priced like any
-other product. The exemption is per shop, not per row; every other shop keeps
-the check.
+that no duty markup is needed, so their leather shoes/boots are priced like any
+other product. The exemption only skips the stop; it does not set a duty rate
+(`customsDutyJpy` stays 0). It is per shop, not per row (LAB STORE WORLD covers
+both `labstoreworld.com` and `labstorelondon.com`); every other shop keeps the
+check.
 
 ## Category Resolution
 

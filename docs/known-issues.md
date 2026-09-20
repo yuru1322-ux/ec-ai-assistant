@@ -65,6 +65,16 @@ thumbnail through on one of the two pages once the site's homepage content
 had rotated — this class of contamination is real, not hypothetical, and
 product identifier filtering is what actually prevents it now.
 
+Known defect (not yet fixed; to be considered as a separate task after checking
+the effect on other shops): the "sufficient" check
+(`GENERIC_IMAGE_SUFFICIENT_COUNT = 3`) counts URL strings, not distinct photos.
+When JSON-LD `Product.image` / `og:image` yield 3 or more URLs that are the same
+photo in different forms (`http://` vs `https://`, with/without `&width=1920`),
+DOM collection is skipped, and after the downloader's duplicate removal only one
+image remains. Observed on labstoreworld.com (a 4-photo product yielded 1). That
+site now has a dedicated scraper (`src/shops/labStoreWorld.js`), which is why
+`extractGenericImages()` was left unchanged.
+
 Residual risk: product identifier filtering only helps when the trusted
 JSON-LD/og:image URL contains a matchable product code that the site's own
 DOM candidates repeat. A site with no embedded product code in its image

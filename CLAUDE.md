@@ -217,6 +217,7 @@ Current shop files are in `src/shops/`:
 
 - `vivienneWestwood.js`
 - `collardManson.js`
+- `labStoreWorld.js`
 - `hobbsLondon.js`
 - `zalando.js`
 - `harveyNichols.js`

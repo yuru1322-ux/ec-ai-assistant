@@ -74,6 +74,7 @@ const SHOP_DOMAINS = {
   'kjbeckett.com': 'KJ BECKETT',
   'kronkron.com': 'KRONKRON',
   'labstorelondon.com': 'LAB STORE WORLD',
+  'labstoreworld.com': 'LAB STORE WORLD',
   'libertylondon.com': 'LIBERTY',
   'ln-cc.com': 'LN-CC',
   'miinto.co.uk': 'MIINTO',
@@ -310,9 +311,10 @@ function describeNoteDiscountForManualCost(note) {
 
 // Shops for which possible leather shoes do NOT stop the calculation with
 // `要確認：革靴の可能性があります。関税を手入力してください`. Client-confirmed for
-// Collard Manson: no duty markup is needed, so its leather shoes/boots are
-// priced like any other product. Every other shop keeps the check.
-const LEATHER_SHOES_DUTY_CHECK_EXEMPT_SHOPS = new Set(['COLLARD MANSON']);
+// Collard Manson and Lab Store World: no duty markup is needed, so their leather
+// shoes/boots are priced like any other product. This only skips the stop; it does
+// not set any duty rate. Every other shop keeps the check.
+const LEATHER_SHOES_DUTY_CHECK_EXEMPT_SHOPS = new Set(['COLLARD MANSON', 'LAB STORE WORLD']);
 
 // `marginRateOverride` (optional, e.g. 0.2) replaces the brand's margin rate for
 // this one calculation, for a per-row client instruction such as "利益率20パーセントで

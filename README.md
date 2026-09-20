@@ -66,6 +66,7 @@ pnpm install --frozen-lockfile
 │       ├── collardManson.js
 │       ├── harveyNichols.js
 │       ├── hobbsLondon.js
+│       ├── labStoreWorld.js
 │       ├── phaseEight.js
 │       ├── selfPortrait.js
 │       ├── selfridges.js
@@ -263,6 +264,7 @@ A列サイトが画像利用を許可していない、またはbot対策で自�
 | `src/shops/phaseEight.js` | Phase Eight |
 | `src/shops/selfridges.js` | Selfridges（自動取得は無効） |
 | `src/shops/collardManson.js` | Collard Manson（Shopify。商品JSON優先、GBP建て） |
+| `src/shops/labStoreWorld.js` | Lab Store World（`labstoreworld.com`。Shopify。商品JSON優先、GBP建て） |
 | `src/shops/tessabit.js` | Tessabit（N列の画像取得元URLとしてのみ使用。画像抽出のみ専用対応、商品情報は汎用フォールバック） |
 
 汎用フォールバックは商品テキスト情報をJSON-LD、OGP、meta description、一般的な商品情報ラベルの順に参照します。**専用スクレイパーを持つショップで汎用フォールバックに頼らないでください。**
@@ -277,7 +279,7 @@ A列サイトが画像利用を許可していない、またはbot対策で自�
 
 商品コード絞り込みにより、対象サイトの「関連商品」カルーセルが商品画像と同一ホスト・同一URL構造の場合でも多くのケースで除外できます。ただし画像URLに商品コードが含まれないサイトでは、この絞り込みが効かず引き続き同種の問題が残り得ます（詳細は`docs/scraper-guide.md`の「General Caveat」を参照）。
 
-A列の汎用パス（`page.goto()`、Phase Eight・Self-Portrait・Harvey Nichols・Vivienne Westwood・Hobbs London・Collard Mansonも共有）はHTTPステータスを確認し、403/404/5xxで`要確認：A列の商品情報取得に失敗しました`として即座に停止します。加えて、HTTP 200を返しつつ本文がbot対策の案内ページや無関係なページへのリダイレクトになっている「ソフトブロック」も、商品名・価格・画像が全て空でN列からも補完できない場合に同じステータスを出す形で検知します（詳細は`docs/known-issues.md`を参照）。
+A列の汎用パス（`page.goto()`、Phase Eight・Self-Portrait・Harvey Nichols・Vivienne Westwood・Hobbs London・Collard Manson・Lab Store Worldも共有）はHTTPステータスを確認し、403/404/5xxで`要確認：A列の商品情報取得に失敗しました`として即座に停止します。加えて、HTTP 200を返しつつ本文がbot対策の案内ページや無関係なページへのリダイレクトになっている「ソフトブロック」も、商品名・価格・画像が全て空でN列からも補完できない場合に同じステータスを出す形で検知します（詳細は`docs/known-issues.md`を参照）。
 
 新しいショップに対応する場合は、`src/shops/` に専用ファイルを追加し、`src/scraper.js` のディスパッチャへ登録します。各ショップの抽出仕様と注意点は `docs/scraper-guide.md` を参照してください。
 

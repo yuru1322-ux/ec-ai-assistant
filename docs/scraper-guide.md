@@ -12,13 +12,14 @@ Dedicated shop scrapers must not be weakened into broad `document.images` extrac
    Status Detection below)
 4. Phase Eight
 5. Collard Manson
-6. Self-Portrait
-7. Harvey Nichols
-8. Vivienne Westwood or Hobbs London
-9. Generic fallback for unsupported shops
+6. Lab Store World
+7. Self-Portrait
+8. Harvey Nichols
+9. Vivienne Westwood or Hobbs London
+10. Generic fallback for unsupported shops
 
-Step 3's `page.goto()` is shared by every shop reached in steps 4-9 —
-Phase Eight, Collard Manson, Self-Portrait, and Harvey Nichols do not have their own
+Step 3's `page.goto()` is shared by every shop reached in steps 4-10 —
+Phase Eight, Collard Manson, Lab Store World, Self-Portrait, and Harvey Nichols do not have their own
 `page.goto()`/`shouldStop` preflight; they rely on this same shared call.
 Only Zalando (step 1) and Selfridges (step 2) bypass it with their own
 dedicated navigation.
@@ -566,6 +567,90 @@ Known limits:
   the current price, `false` when the page was read and shows none, and `null`
   when neither source could be read. `src/pricing.js` uses `onSale` to skip the
   C-column percentage discount for sale items (see `docs/pricing-rules.md`)
+
+## Lab Store World
+
+File: `src/shops/labStoreWorld.js`
+
+URL match:
+
+- `labstoreworld.com`
+- `www.labstoreworld.com`
+
+(`labstorelondon.com` is only a shipping-domain registration in
+`src/pricing.js`; it is not routed to this scraper.) Tracking query parameters
+on the URL (`?variant=...&_pos=...`) are ignored: the product handle comes from
+the path. Dispatched from both `scrapeProductPage()` (A-column) and
+`scrapeImagesFromUrl()` (N-column, images only).
+
+Shopify store, same approach as Collard Manson: **product JSON first**
+(`GET /products/{handle}.js`, fetched inside the page), JSON-LD `ProductGroup`
+and the DOM as fallbacks and for currency.
+
+Product data:
+
+- Name: `h1`, JSON title fallback. Brand: JSON-LD `brand.name`, JSON `vendor`
+  fallback. Category: JSON-LD `category`, JSON `type` fallback (`Shoes`)
+- Price: product JSON price (minor units / 100), then `og:price:amount`, then
+  JSON-LD offers; a disagreement between sources adds a warning. Related-product
+  prices printed in the page are never read
+- Currency: JSON-LD offers, `og:price:currency`, `Shopify.currency.active`.
+  Non-GBP adds a warning
+- SKU / product code: variant SKU (or the `SKU:` description line).
+  `mpn` / `designerId`: the `Designer ID:` line (e.g. `RR02F4837 LOO`)
+- Description: every line of the product JSON's description HTML in page order
+  (JSON-LD's plain text, then `og:description`, as fallbacks), one line per
+  block. `features` is the prose that is not metadata; the `<name> from <brand>.`
+  intro sentence, `Composition:`, `Made in`, `SKU:` and `Designer ID:` lines are
+  not features, so a page with only those has empty `features` (status
+  `要確認：Features取得失敗`)
+- Material / composition: the `Composition:` line split on ` - ` (hyphen followed
+  by whitespace and a letter, or at the end of the line; hyphens inside a word
+  are kept) with a space added after `%`:
+  `Upper 100% Calf Leather`, `Lining 100% Calf Leather`, ...
+- Country of origin: `Made in <X>` -> `countryOfOrigin: 'Italy'`; the page text
+  is kept in `madeIn: 'Made in Italy'`
+- Season: a tag such as `AW26`, else a season code in the description text
+  (never a SKU such as `LFW26-9114`)
+- Colour: only a `Color:` description line or a single-valued Colour variant
+  option. **The product name is never used** (`NASKA BOGUN BLACK` gives no colour,
+  so the status reads `要確認：カラー取得失敗`)
+- Sizes: JSON variants on the `Size` option, labels kept as the page writes them
+  (`42 EU`): `sizes`, `availableSizes`, `sizeVariants` (`size`, `available`,
+  `sku`, `quantity`), `availability`. DOM fallback reads only the
+  `variant-picker` radios (`data-option-available`)
+- Sale: `onSale` from the JSON compare-at price (product or any variant) being
+  higher than the price; `null` (unknown, not guessed) when the JSON could not be
+  read, because the page also prints compare-at prices for related products
+- `dimensions` stays empty; `scraped.sizes` feeds `販売サイズ：` (see
+  `docs/buyma-generation.md`)
+
+Images:
+
+- Primary: product JSON `images` (Shopify gallery order). Fallback: the
+  `media-gallery` element only (related products sit outside it). No
+  `document.images` fallback
+- The same photo appears as `http://` and `https://`, on `cdn.shopify.com` and
+  `labstoreworld.com/cdn/shop/`, and with `width=`/`height=` queries. These are
+  collapsed by a host-, protocol-, size- and revision-independent
+  `canonicalKey`, and the original upload (no size query) is requested; the
+  displayed URL is kept as `sourceUrl` for `src/images.js`'s fallback
+- `excludeBelowWidth`: 400; max 15 images. No `warningWidth` (originals are
+  2258x3388)
+
+Shipping: `LAB STORE WORLD` is `{ fixed: 10 }` in `src/pricing.js`;
+`labstoreworld.com` and `labstorelondon.com` both resolve to it. It is also exempt
+from the leather-shoes stop (`要確認：革靴の可能性があります。関税を手入力してください`),
+same as Collard Manson; see `docs/pricing-rules.md`.
+
+Known limits:
+
+- Verified against one product (`rick-owens-naska-bogun-black-lfw26-9114`),
+  including a run with the product-JSON request blocked. Other categories are
+  covered by offline checks of the parsing functions, not by live pages
+- The generic image extraction defect that motivated this scraper (URL variants
+  of one photo counted as separate images) is deliberately not changed here; see
+  `docs/known-issues.md`, "Generic Scraper"
 
 ## Selfridges
 
