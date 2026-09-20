@@ -8,7 +8,7 @@ const { getSheetsClient, readProducts, readSettings, updateStatus, writeResult, 
 const { scrapeProductPage, scrapeImagesFromUrl } = require('./scraper');
 const { downloadImages, saveSizeGuideImage } = require('./images');
 const { generateBuymaContent } = require('./openaiClient');
-const { calculatePricing } = require('./pricing');
+const { calculatePricing, applyNoteDiscount, describeNoteDiscountForManualCost } = require('./pricing');
 
 const A_COLUMN_ACCESS_FAILURE_STATUS = '要確認：A列の商品情報取得に失敗しました';
 
@@ -152,7 +152,7 @@ async function processProduct({ browser, sheets, settings, product }) {
       downloadedImagePaths: imagePaths
     });
 
-    const costResult = determineCost({ scraped: merged, manualCostRaw: product.manualCost, settings });
+    const costResult = determineCost({ scraped: merged, manualCostRaw: product.manualCost, settings, note: product.note });
     if (costResult.note) extraNotes.push(costResult.note);
 
     const pricing = costResult.warning
@@ -308,11 +308,14 @@ function parseManualCost(value) {
   return { amount, currency };
 }
 
-function determineCost({ scraped, manualCostRaw, settings }) {
+function determineCost({ scraped, manualCostRaw, settings, note = '' }) {
   const scrapeResult = getCostGbp(scraped, settings);
   if (hasValue(scrapeResult.cost)) {
-    return { cost: scrapeResult.cost, warning: scrapeResult.warning, note: '' };
+    // C-column "○%オフ適用" instruction: applied to the scraped cost only.
+    const discount = applyNoteDiscount({ costGbp: scrapeResult.cost, note, onSale: scraped.onSale });
+    return { cost: discount.cost, warning: scrapeResult.warning, note: discount.message };
   }
+  const manualDiscountNote = describeNoteDiscountForManualCost(note);
 
   const manualRawTrimmed = String(manualCostRaw === undefined || manualCostRaw === null ? '' : manualCostRaw).trim();
   const manual = parseManualCost(manualCostRaw);
@@ -324,7 +327,11 @@ function determineCost({ scraped, manualCostRaw, settings }) {
   }
 
   if (manual.currency === 'GBP') {
-    return { cost: manual.amount, warning: '', note: '要確認：原価はD列の手入力値（GBP）を使用しました' };
+    return {
+      cost: manual.amount,
+      warning: '',
+      note: ['要確認：原価はD列の手入力値（GBP）を使用しました', manualDiscountNote].filter(Boolean).join('\n')
+    };
   }
 
   const eurGbpRate = settingNumber(settings, 'EUR_GBP_RATE');
@@ -334,7 +341,7 @@ function determineCost({ scraped, manualCostRaw, settings }) {
   return {
     cost: roundNumber(manual.amount * eurGbpRate, 2),
     warning: '',
-    note: '要確認：原価はD列の手入力値（EUR→GBP換算）を使用しました'
+    note: ['要確認：原価はD列の手入力値（EUR→GBP換算）を使用しました', manualDiscountNote].filter(Boolean).join('\n')
   };
 }
 

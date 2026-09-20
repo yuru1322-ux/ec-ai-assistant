@@ -35,6 +35,59 @@ Important:
 - Unknown currency stops pricing with `要確認：通貨判定失敗` or `要確認：通貨換算が必要（XXX→GBP）`.
 - Missing or invalid `EUR_GBP_RATE` stops EUR pricing with `要確認：EUR/GBP為替レートを確認してください`.
 
+## Per-Row Margin Override
+
+`calculatePricing()` accepts an optional `marginRateOverride` (e.g. `0.2`) that
+replaces the brand margin for that one calculation; values outside 0-1 are
+ignored. It exists for a client instruction in the C-column note such as
+`利益率20パーセントで計算してください`. **The note is not parsed automatically**
+and `src/index.js` never passes the override: whether to honour a C-column
+instruction is confirmed with the user each time, and the value is then passed
+in explicitly (e.g. by a one-off script). Omitted, calculation is unchanged.
+The brand-minimum check and the upper-limit warning use the overridden rate.
+
+## C-Column Discount Instruction
+
+If the C-column note (`備考欄`) tells the operator to apply a percentage
+discount, e.g. `20%オフ適用して価格計算してください（＊セール品を除く）`, the
+discount is applied to the cost **before** the pricing formulas run. The
+formulas themselves are unchanged; `costGbp` simply becomes the discounted
+value, and that same discounted value is what column D receives.
+
+Implemented in `src/pricing.js` (`parseNoteDiscount()`, `applyNoteDiscount()`,
+`describeNoteDiscountForManualCost()`) and called from `determineCost()` in
+`src/index.js`.
+
+```text
+costGbp = round(scraped price in GBP * (1 - rate / 100), 2)
+```
+
+Rules:
+
+- The note must say to **apply** it: `<n>%オフ適用` / `<n>%OFFを適用` / `<n>%引き適用`
+  (full-width digits and `％` are accepted). A bare `20%オフ` mention without
+  `適用` is not applied; the row gets
+  `要確認：C列の割引指定を自動適用できませんでした。原価を確認してください`.
+  A rate outside 0-100 is treated the same way.
+- Applied only to the **scraped** cost. A D-column manual cost is used as
+  typed, and the row gets `要確認：D列手入力の原価にはC列の割引指定を適用していません`.
+- N-column prices are never used (unchanged), so they are never discounted either.
+- If the note also says `セール品を除く` / `セール品は対象外`, sale items are
+  skipped, decided by `scraped.onSale`:
+  - `true`: not applied; status note `セール品のため20%オフは適用していません`
+  - `false`: applied
+  - not `true`/`false` (the shop's scraper cannot tell): not applied, status note
+    `要確認：セール品か判定できないため20%オフを適用していません`. Not
+    discounting is the safe side: an unneeded discount lowers the listing
+    price and margin, a missing one only leaves the price higher.
+  - Only the Collard Manson scraper sets `onSale` today (Shopify compare-at
+    price or strike-through `.was_price` higher than the current price). Any
+    other shop with such a note therefore gets the `要確認` line, not a discount.
+- When applied, a status line is appended: `20%オフを適用（定価459→367.2 GBP）`.
+- Rows whose note has no percentage discount are unaffected.
+- The second sentence of the example note (`在庫のないサイズは在庫なしで登録してください`)
+  is not processed by the pipeline: there is no sheet column for stock.
+
 ## Required Settings
 
 `src/pricing.js` validates:
@@ -202,9 +255,16 @@ shipping is a single confirmed GBP amount regardless of category or price bracke
 bypassing `INTERNATIONAL_SHIPPING_GBP` entirely:
 
 ```text
-MONCLER: GBP 50 fixed (client-confirmed, applies to all French-sourced Moncler
+MONCLER: GBP 50 fixed (client-confirmed, applies ONLY to French-sourced Moncler
 orders regardless of category or cost)
 ```
+
+The flat rate is **not** triggered by the `moncler.com` URL. A Moncler row is
+UK-sourced/UK-shipped by default and uses the normal category/price-bucket table
+(e.g. アパレル: 25 up to GBP 250, 28 up to 599, 40 from 600); it gets the flat
+GBP 50 only when the C-column note says France was the purchase route (see
+"France Detection Beyond moncler.com"). Earlier code applied GBP 50 to every
+`moncler.com` row; corrected on the client's instruction.
 
 For these shops, a failed category resolution (`要確認：カテゴリー判定`) does **not**
 block price calculation — it is dropped instead of added to the blocking warnings.
@@ -216,11 +276,10 @@ this does not affect J/K/L/M, which calculate identically either way.
 
 #### France Detection Beyond moncler.com
 
-The GBP 50 flat rate above is triggered by `shopResult.shopName === 'MONCLER'`,
-which only happens when A-column resolves to `moncler.com` directly. It is also
-triggered — independent of resolved shop — whenever **both** of these hold:
+The GBP 50 flat rate above is triggered only when **both** of these hold:
 
-- brand (B column, normalized) is `MONCLER`, and
+- the row is Moncler: brand (B column, normalized) is `MONCLER`, or the A-column
+  resolves to the `MONCLER` shop (`moncler.com`), and
 - `isFranceSourcedNote(note)` is true: the C-column note (passed to
   `calculatePricing()` as `note`) contains both `フランス` and a purchase-related
   keyword (`買付`, `買い付け`, or `仕入`) — i.e. an explicit client instruction
@@ -241,10 +300,10 @@ manual cost, without requiring a C-column note. Both produced false positives
 item actually ships from) and were replaced with the note-only check above —
 client confirmation, not a guess from the URL or currency.
 
-`internationalShippingGbp` resolves to `FLAT_INTERNATIONAL_SHIPPING_GBP.get(shopResult.shopName)`
-when available, falling back to `FLAT_INTERNATIONAL_SHIPPING_GBP.get('MONCLER')`
-when the flat rate was triggered via the brand+France path on a non-MONCLER shop
-(e.g. `MYTHERESA`).
+When triggered, `internationalShippingGbp` is `FLAT_INTERNATIONAL_SHIPPING_GBP.get('MONCLER')`.
+Because the flat rate no longer applies to every `moncler.com` row, a Moncler row
+without the France note must resolve a category (column I, product name, etc.);
+`要確認：カテゴリー判定` blocks it like any other shop.
 
 ## International Shipping
 
@@ -303,6 +362,14 @@ Possible leather shoes:
 要確認：革靴の可能性があります。関税を手入力してください
 ```
 
+This warning stops the calculation (`canCalculate: false`). The formulas contain
+no duty term (`customsDutyJpy` is always 0), so it exists to make the operator
+check duty by hand. **Collard Manson is exempt**
+(`LEATHER_SHOES_DUTY_CHECK_EXEMPT_SHOPS` in `src/pricing.js`): client-confirmed
+that no duty markup is needed, so its leather shoes/boots are priced like any
+other product. The exemption is per shop, not per row; every other shop keeps
+the check.
+
 ## Category Resolution
 
 `resolveShippingCategory()` prioritizes:
@@ -333,6 +400,17 @@ For product name, priority is:
 ```
 
 This keeps explicit accessory names such as necklace/ring/earrings correct while avoiding accidental matches in description text.
+
+### URL collection segment (Collard Manson only)
+
+For `collardmanson.co.uk`, the `/collections/{handle}/` part of the URL is
+removed before URL keyword matching (`COLLECTION_SEGMENT_IGNORED_HOSTS` in
+`src/pricing.js`). Its collections are brand groupings, e.g.
+`/collections/rick-owens-jackets/` contains boots and jeans as well, so the word
+`jackets` in it would otherwise classify any product opened from it as
+`アパレル` whenever the page has no product type (observed on a pair of boots).
+The product's own path (`/products/{handle}`) is still matched, then the
+product name follows as usual. Other shops' URLs are unchanged.
 
 Category logs are printed:
 

@@ -216,9 +216,9 @@ const PROFIT_UPPER_LIMITS = {
 
 const PROVISIONAL_SHIPPING_SHOPS = new Set([]);
 
-// Shops whose international shipping is a flat GBP amount regardless of category
-// or price bracket (client-confirmed operational rule), bypassing the normal
-// category/price-bucket lookup in INTERNATIONAL_SHIPPING_GBP entirely.
+// Flat international shipping (GBP) that replaces the category/price-bucket
+// lookup in INTERNATIONAL_SHIPPING_GBP. Client-confirmed for MONCLER and only
+// for France-sourced orders (C-column note), see isFranceSourcedNote().
 const FLAT_INTERNATIONAL_SHIPPING_GBP = new Map([
   ['MONCLER', 50]
 ]);
@@ -251,7 +251,75 @@ function isFranceShippingNote(note) {
 // JPY 2000 packaging fee to the total purchase cost used for pricing.
 const UK_PACKAGING_FEE_JPY = 2000;
 
-function calculatePricing({ sourceUrl, brandName, costGbp, category, productData = {}, settings = {}, note = '' }) {
+// C-column instruction such as "20%オフ適用して価格計算してください（＊セール品を除く）".
+// Applied to the SCRAPED cost only (never to a D-column manual cost), and only
+// when the note explicitly says to apply it ("適用"): a bare "20%オフ" mention
+// is ambiguous (could be a sale description) and is flagged, not applied.
+// The pricing formulas in calculatePricing() are unchanged; the discounted
+// cost simply becomes the `costGbp` they receive.
+const NOTE_DISCOUNT_APPLY_PATTERN = /(\d+(?:\.\d+)?)\s*%\s*(?:オフ|OFF|引き)\s*(?:を)?\s*適用/i;
+const NOTE_DISCOUNT_MENTION_PATTERN = /\d+(?:\.\d+)?\s*%\s*(?:オフ|OFF|引き)/i;
+const NOTE_SALE_EXCLUSION_PATTERN = /セール(?:品)?\s*(?:は|を)?\s*(?:除|対象外)/;
+
+function parseNoteDiscount(note) {
+  // NFKC folds full-width digits and "％" so "２０％オフ" is read like "20%オフ".
+  const text = String(note || '').normalize('NFKC');
+  const applyMatch = text.match(NOTE_DISCOUNT_APPLY_PATTERN);
+  const rate = applyMatch ? Number(applyMatch[1]) : null;
+  return {
+    mentioned: NOTE_DISCOUNT_MENTION_PATTERN.test(text),
+    rate: Number.isFinite(rate) && rate > 0 && rate < 100 ? rate : null,
+    excludesSale: NOTE_SALE_EXCLUSION_PATTERN.test(text)
+  };
+}
+
+// Returns the cost to use plus a status message. `onSale` must be exactly
+// true/false; anything else means the scraper could not tell.
+function applyNoteDiscount({ costGbp, note, onSale }) {
+  const unchanged = (message = '') => ({ cost: costGbp, applied: false, rate: null, message });
+  const parsed = parseNoteDiscount(note);
+  if (!parsed.mentioned) return unchanged();
+  if (parsed.rate === null) {
+    return unchanged('要確認：C列の割引指定を自動適用できませんでした。原価を確認してください');
+  }
+  const numericCost = Number(costGbp);
+  if (!Number.isFinite(numericCost)) return unchanged();
+
+  if (parsed.excludesSale) {
+    if (onSale === true) return unchanged(`セール品のため${parsed.rate}%オフは適用していません`);
+    if (onSale !== false) {
+      return unchanged(`要確認：セール品か判定できないため${parsed.rate}%オフを適用していません`);
+    }
+  }
+  const discounted = roundNumber(numericCost * (1 - parsed.rate / 100), 2);
+  return {
+    cost: discounted,
+    applied: true,
+    rate: parsed.rate,
+    message: `${parsed.rate}%オフを適用（定価${numericCost}→${discounted} GBP）`
+  };
+}
+
+// Manual (D-column) costs are taken as the user typed them, so a discount
+// instruction in the note is reported rather than applied.
+function describeNoteDiscountForManualCost(note) {
+  const parsed = parseNoteDiscount(note);
+  if (!parsed.mentioned) return '';
+  return '要確認：D列手入力の原価にはC列の割引指定を適用していません';
+}
+
+// Shops for which possible leather shoes do NOT stop the calculation with
+// `要確認：革靴の可能性があります。関税を手入力してください`. Client-confirmed for
+// Collard Manson: no duty markup is needed, so its leather shoes/boots are
+// priced like any other product. Every other shop keeps the check.
+const LEATHER_SHOES_DUTY_CHECK_EXEMPT_SHOPS = new Set(['COLLARD MANSON']);
+
+// `marginRateOverride` (optional, e.g. 0.2) replaces the brand's margin rate for
+// this one calculation, for a per-row client instruction such as "利益率20パーセントで
+// 計算してください" in the C-column note. The C-column note is NOT parsed
+// automatically: whether to honour such an instruction is confirmed with the user
+// each time, then passed in explicitly. Omitted, behaviour is unchanged.
+function calculatePricing({ sourceUrl, brandName, costGbp, category, productData = {}, settings = {}, note = '', marginRateOverride }) {
   const warnings = [];
   const blockingWarnings = [];
   const errors = [];
@@ -263,7 +331,9 @@ function calculatePricing({ sourceUrl, brandName, costGbp, category, productData
     blockingWarnings.push('要確認：価格取得失敗');
   }
 
-  const brandResult = resolveBrandMargin(brandName);
+  const resolvedBrand = resolveBrandMargin(brandName);
+  const hasMarginOverride = Number.isFinite(marginRateOverride) && marginRateOverride > 0 && marginRateOverride < 1;
+  const brandResult = hasMarginOverride ? { ...resolvedBrand, marginRate: marginRateOverride } : resolvedBrand;
   warnings.push(...brandResult.warnings);
 
   const shopResult = resolveShop(sourceUrl);
@@ -271,15 +341,16 @@ function calculatePricing({ sourceUrl, brandName, costGbp, category, productData
   if (PROVISIONAL_SHIPPING_SHOPS.has(shopResult.shopName)) {
     warnings.push('要確認：ショップ送料が暫定値（0）です');
   }
-  // Direct moncler.com rows are covered by the shop-based check. Rows sourced
-  // from a different retailer (e.g. an N-column-less mytheresa.com row where
-  // moncler.com itself could not be scraped) get the same flat rate only when
-  // the C-column note explicitly says the item was bought via a French site.
-  // Scoped to brand=Moncler; this is a client-confirmed rule for Moncler
-  // specifically, not a general France-shipping rule.
-  const isMonclerFranceSourced = normalizeBrandName(brandName) === 'MONCLER'
+  // The flat rate is a France-sourcing rule (client-confirmed), NOT a
+  // moncler.com-URL rule: a moncler.com row is UK-sourced/UK-shipped unless the
+  // C-column note explicitly says the item was bought via a French site, and
+  // otherwise follows the normal category/price-bucket table. It applies to
+  // Moncler only (brand, or a moncler.com shop) — a client-confirmed rule for
+  // Moncler specifically, not a general France-shipping rule — and also covers
+  // rows sourced from another retailer (e.g. mytheresa.com) when the note says so.
+  const isMonclerFranceSourced = (normalizeBrandName(brandName) === 'MONCLER' || shopResult.shopName === 'MONCLER')
     && isFranceSourcedNote(note);
-  const hasFlatInternationalShipping = FLAT_INTERNATIONAL_SHIPPING_GBP.has(shopResult.shopName) || isMonclerFranceSourced;
+  const hasFlatInternationalShipping = isMonclerFranceSourced;
 
   const categoryResult = resolveShippingCategory({ category, productData, sourceUrl });
   if (hasFlatInternationalShipping) {
@@ -294,7 +365,7 @@ function calculatePricing({ sourceUrl, brandName, costGbp, category, productData
     console.log(`カテゴリ判定: category=${categoryResult.category} source=${categoryResult.source || 'unknown'} matched=${categoryResult.matched || 'unknown'}`);
   }
 
-  if (categoryResult.possibleLeatherShoes) {
+  if (categoryResult.possibleLeatherShoes && !LEATHER_SHOES_DUTY_CHECK_EXEMPT_SHOPS.has(shopResult.shopName)) {
     blockingWarnings.push('要確認：革靴の可能性があります。関税を手入力してください');
   }
 
@@ -315,7 +386,7 @@ function calculatePricing({ sourceUrl, brandName, costGbp, category, productData
   }
 
   const internationalShippingGbp = hasFlatInternationalShipping
-    ? (FLAT_INTERNATIONAL_SHIPPING_GBP.get(shopResult.shopName) ?? FLAT_INTERNATIONAL_SHIPPING_GBP.get('MONCLER'))
+    ? FLAT_INTERNATIONAL_SHIPPING_GBP.get('MONCLER')
     : calculateInternationalShipping(normalizedCost, categoryResult.category);
   if (!Number.isFinite(internationalShippingGbp)) {
     blockingWarnings.push('要確認：カテゴリー判定');
@@ -722,10 +793,20 @@ function normalizeCategoryText(value) {
     .toLowerCase();
 }
 
+// Shops whose `/collections/{handle}/` URL segment is a browsing/brand grouping
+// (e.g. Collard Manson's `/collections/rick-owens-jackets/` holds every Rick
+// Owens product, boots and jeans included), not the product's own category.
+// The segment is dropped before category keyword matching so a product opened
+// from such a collection is not classified by the collection name.
+const COLLECTION_SEGMENT_IGNORED_HOSTS = new Set(['collardmanson.co.uk']);
+
 function categoryTextFromUrl(sourceUrl) {
   if (!sourceUrl) return '';
   try {
     const parsed = new URL(sourceUrl);
+    if (COLLECTION_SEGMENT_IGNORED_HOSTS.has(normalizeHostname(parsed.hostname))) {
+      return parsed.pathname.replace(/\/collections\/[^/]+/i, '');
+    }
     return parsed.pathname;
   } catch (_) {
     return '';
@@ -766,6 +847,9 @@ module.exports = {
   INTERNATIONAL_SHIPPING_GBP,
   UK_PACKAGING_FEE_JPY,
   isFranceShippingNote,
+  parseNoteDiscount,
+  applyNoteDiscount,
+  describeNoteDiscountForManualCost,
   calculatePricing,
   calculateShopShipping,
   normalizePricingSettings,

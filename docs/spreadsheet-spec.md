@@ -45,6 +45,8 @@ Do not modify:
 - C 備考欄
 - N 情報取得元URL
 
+C is read as free text. It is used for France-sourcing detection and for a percentage discount instruction such as `20%オフ適用して価格計算してください（＊セール品を除く）` (see `docs/pricing-rules.md`, "C-Column Discount Instruction"). Other wording in C is not interpreted.
+
 B is used for brand margin calculation. It is not the shop name. The shop is resolved from the A-column URL hostname, never from the N-column URL.
 
 D is normally a program output column, but it is also read as a manual fallback input before processing. See "Manual Cost Input (Column D)" below.

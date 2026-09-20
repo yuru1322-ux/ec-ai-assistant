@@ -50,6 +50,12 @@ const {
   gotoFlannelsViaCurl,
   extractFlannelsProductDetails
 } = require('./shops/flannels');
+const {
+  isCollardMansonUrl,
+  extractCollardMansonProductDetails,
+  extractCollardMansonImages,
+  COLLARD_MANSON_IMAGE_FAILURE_STATUS
+} = require('./shops/collardManson');
 
 const GENERIC_ACCESS_FAILURE_STATUS = '要確認：A列の商品情報取得に失敗しました';
 // Exact status codes treated as a block. 5xx is handled separately as a
@@ -125,6 +131,20 @@ async function scrapeProductPage(page, url) {
     return {
       ...shopProductDetails,
       status: shopImageSources.length > 0 ? '' : PHASE_EIGHT_IMAGE_FAILURE_STATUS,
+      imageUrls: shopImageSources.map((image) => image.url),
+      imageSources: shopImageSources
+    };
+  }
+  if (isCollardMansonUrl(url)) {
+    const shopProductDetails = await extractCollardMansonProductDetails(page, url);
+    const shopImageSources = await extractCollardMansonImages(page);
+    if (shopProductDetails && shopProductDetails.extractionLog && shopProductDetails.extractionLog.color) {
+      const colorLog = shopProductDetails.extractionLog.color;
+      console.log(`Collard Manson色取得: ${colorLog.value || '未取得'} (${colorLog.source || '取得元なし'})`);
+    }
+    return {
+      ...shopProductDetails,
+      status: shopImageSources.length > 0 ? '' : COLLARD_MANSON_IMAGE_FAILURE_STATUS,
       imageUrls: shopImageSources.map((image) => image.url),
       imageSources: shopImageSources
     };
@@ -596,6 +616,7 @@ async function scrapeImagesFromUrl(page, url) {
     if (isVivienneWestwoodUrl(url)) return await extractVivienneWestwoodImages(page);
     if (isHobbsLondonUrl(url)) return await extractHobbsLondonImages(page);
     if (isTessabitUrl(url)) return await extractTessabitImages(page);
+    if (isCollardMansonUrl(url)) return await extractCollardMansonImages(page);
 
     return await extractGenericImages(page);
   } catch (_) {

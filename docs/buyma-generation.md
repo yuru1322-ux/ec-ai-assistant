@@ -44,6 +44,7 @@ Typical fields:
 - `scraped.composition`
 - `scraped.material`
 - `scraped.dimensions`
+- `scraped.sizes`
 - `scraped.color`
 - `scraped.productCode`
 - `scraped.sku`
@@ -113,7 +114,7 @@ Then only available headings are output in this order:
 
 1. `素材：`
 2. `仕様・特徴：`
-3. `サイズ：`
+3. `サイズ：` (actual measurements) or `販売サイズ：` (sales sizes) — never both
 4. `モデル：`
 5. `カラー：`
 6. `商品コード：`
@@ -141,6 +142,16 @@ Empty headings are forbidden.
 - does not treat apparel selected size as actual measurements
 - no guessed UK/JP conversion
 
+`販売サイズ：`
+
+- fallback in the same slot as `サイズ：`; used only when `scraped.dimensions` has no concrete measurements (empty, or only a selected size / model wearing size) and `scraped.sizes` has at least one usable size
+- when `scraped.dimensions` has concrete measurements, only `サイズ：` is output (actual measurements win) and `販売サイズ：` is never output alongside it
+- uses only `scraped.sizes`; `sizeVariants`, `availableSizes`, and `availability` are not used
+- one line, labels joined with `、` (e.g. `販売サイズ：41、42、43、44`), kept exactly as in the source and in source order
+- no added size system (EU/UK/US), unit, conversion, or stock information
+- output only in `productDetails`, not in `description`
+- `scraped.sizes` is currently provided by the Collard Manson scraper (see `docs/scraper-guide.md`); it comes from the A-column scrape only and is not overridden by N-column data
+
 Optional labels are used only when corresponding source fields exist:
 
 - `開閉方法：`
@@ -159,8 +170,11 @@ Return notes are not included.
 `src/openaiClient.js` sanitizes output:
 
 - removes lines containing `記載なし` or `不明`
-- removes `サイズ：` block when `scraped.dimensions` is not usable
-- removes empty headings
+- removes `サイズ：` block when `scraped.dimensions` is not usable. The block ends at the next known heading (`素材：`, `仕様・特徴：`, `サイズ：`, `販売サイズ：`, `モデル：`, `カラー：`, `商品コード：`, and the optional-detail labels), including headings that carry their value on the same line such as `カラー：黒`. `裏地：` is deliberately not treated as a heading because it is also a sub-label inside `素材：`
+- removes bare placeholder lines (`なし`, `該当なし`, `情報なし`, `未記載`, `N/A`) in addition to lines containing `記載なし` / `不明`
+- removes `カラー：` when `scraped.color` is empty (the color comes only from `scraped.color`; a color the model derived from the name or description is dropped)
+- builds `販売サイズ：` from `scraped.sizes` itself: any model-written `販売サイズ：` block is replaced by the exact one-line value (`、` joined, duplicates and empty/`記載なし` items removed) and placed in its slot, before `モデル：` / `カラー：` / `商品コード：` / the optional details. It is dropped when `scraped.dimensions` has concrete measurements or `scraped.sizes` is empty. This keeps the line present and correct even when the model omits or rewrites it
+- removes empty headings, including a heading directly followed by another heading that has an inline value
 
 This is a safety layer only. The prompt should still instruct the model to avoid unavailable fields.
 

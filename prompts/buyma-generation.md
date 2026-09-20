@@ -35,6 +35,7 @@ Typical fields:
 - `scraped.composition`
 - `scraped.material`
 - `scraped.dimensions`
+- `scraped.sizes`
 - `scraped.color`
 - `scraped.colorSource`
 - `scraped.productCode`
@@ -145,7 +146,7 @@ Use these fields when available:
 - Features: `scraped.features`
 - Composition/material: `scraped.composition`, then `scraped.material`
 - Color: `scraped.color`
-- Size: `scraped.dimensions`
+- Size: `scraped.dimensions` (actual measurements). Only when no actual measurements are available, sales sizes from `scraped.sizes`
 - Product code: `scraped.productCode`, then `scraped.sku`, then `scraped.mpn`
 - Category: `scraped.category`
 
@@ -339,13 +340,14 @@ Then output only headings whose values are available, except that heading order 
 
 1. `素材：`
 2. `仕様・特徴：`
-3. `サイズ：`
+3. `サイズ：` (actual measurements) or `販売サイズ：` (sales sizes) — never both
 4. `モデル：`
 5. `カラー：`
 6. `商品コード：`
 7. Optional details
 
-Do not output empty headings.
+Every heading whose value is available MUST be output, in that order. Do not omit `カラー：`, `商品コード：`, or `販売サイズ：`/`サイズ：` when their source values are available.
+Do not output empty headings. Never write a placeholder such as `なし` under a heading; omit the whole heading instead.
 Do not output `記載なし` or `不明`.
 
 ### 素材
@@ -410,7 +412,7 @@ Rules:
 - Do not infer sizes.
 - Do not output size information if unavailable.
 - Do not treat apparel size selection, such as `size 40`, as product measurements.
-- If `scraped.dimensions` only contains a selected size or model wearing size, omit the `サイズ：` heading.
+- If `scraped.dimensions` only contains a selected size or model wearing size, omit the `サイズ：` heading. In that case the `販売サイズ：` fallback below may apply.
 - Concrete dimensions such as height, width, depth, length, diameter, chain length, or drop may be output.
 - Preserve source values.
 - Add Japanese labels such as `高さ`, `幅`, `奥行き`, `着丈`, `チェーン全長` only when the source meaning is clear.
@@ -423,6 +425,32 @@ Example format:
 チェーン全長：約47.5cm
 高さ：約2.3cm
 幅：約1.8cm
+
+### 販売サイズ
+
+`販売サイズ：` lists the sizes the shop sells (for example shoe sizes or S/M/L). It is a fallback that takes the same slot as `サイズ：`: position 3 in the heading order, directly after `仕様・特徴：` and before `モデル：`, `カラー：`, and `商品コード：`.
+
+When to use:
+
+- If `scraped.dimensions` contains concrete measurements (the case where `サイズ：` is output), output `サイズ：` only. Actual measurements always take priority. Never output `販売サイズ：` in that case.
+- If `scraped.dimensions` is unavailable, or contains no concrete measurements (for example only a selected size or model wearing size such as `size 40`), and `scraped.sizes` has at least one usable size, output `販売サイズ：` from `scraped.sizes`.
+- If neither is available, omit both headings.
+
+Rules:
+
+- `scraped.sizes` is an array of size labels, for example `["41", "42", "43", "44"]` or `["XS", "S", "M"]`.
+- Use only `scraped.sizes`. Do not use `scraped.sizeVariants`, `scraped.availableSizes`, or `scraped.availability`.
+- Ignore empty items, `記載なし`, and `不明`. If nothing usable remains, omit the heading.
+- Preserve each size label exactly as in the source and keep the source order. Remove exact duplicates only.
+- Do not add sizes that are not in `scraped.sizes`.
+- Do not add a size system (EU, UK, US), a unit, or a conversion. UK to Japan conversion is allowed only when explicitly available in the source input. Do not guess conversions.
+- Do not mention stock, sold-out state, or quantities.
+- Sales sizes are not measurements. Do not describe fit, body dimensions, or garment dimensions from them.
+- Output `販売サイズ：` only in `productDetails`. Do not use sales sizes in `description`.
+
+Required format (one line, labels joined with `、`):
+
+販売サイズ：41、42、43、44
 
 ### モデル
 
@@ -441,6 +469,7 @@ Use `scraped.color` only when available.
 Rules:
 
 - Prefer the selected swatch color when `scraped.colorSource` indicates it.
+- The `カラー：` line comes ONLY from `scraped.color`. If `scraped.color` is empty or missing, omit the `カラー：` heading, even when a color word appears in the product name, description, or features (for example `black leather`). Never derive the color from those fields.
 - Do not add color names not present in the input.
 - Preserve official multi-color meaning while making Japanese readable.
 - If unavailable, omit the `カラー：` heading.
@@ -503,8 +532,13 @@ Before returning JSON, silently verify and revise until all conditions are satis
 - `素材：` preserves composition ratios when available.
 - `仕様・特徴：` has one item per line and no bullet symbols.
 - Feature order is mostly preserved.
-- Size uses only official `scraped.dimensions`.
-- Apparel selected size is not described as actual measurements.
+- `サイズ：` uses only official `scraped.dimensions`.
+- `販売サイズ：` is output only when `サイズ：` is not output, uses only `scraped.sizes`, and never appears together with `サイズ：`.
+- `販売サイズ：` keeps size labels and order as in the source, with no added size system, unit, conversion, or stock information.
+- When `scraped.sizes` has usable sizes and no concrete `scraped.dimensions` measurements exist, `販売サイズ：` is present (not omitted).
+- Headings appear in the required order, with `販売サイズ：`/`サイズ：` before `カラー：` and `商品コード：`.
+- `カラー：` and `商品コード：` are present whenever `scraped.color` and a product code are available. `カラー：` is omitted when `scraped.color` is empty, even if a color appears elsewhere in the input.
+- Apparel selected size and sales sizes are not described as actual measurements.
 - Model information is omitted when unavailable.
 - Color uses `scraped.color` without inventing additional color names.
 - Optional missing fields are omitted, not treated as errors.

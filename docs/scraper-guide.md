@@ -11,13 +11,14 @@ Dedicated shop scrapers must not be weakened into broad `document.images` extrac
 3. `page.goto()` for other shops, via `inspectGenericAccess()` (see HTTP
    Status Detection below)
 4. Phase Eight
-5. Self-Portrait
-6. Harvey Nichols
-7. Vivienne Westwood or Hobbs London
-8. Generic fallback for unsupported shops
+5. Collard Manson
+6. Self-Portrait
+7. Harvey Nichols
+8. Vivienne Westwood or Hobbs London
+9. Generic fallback for unsupported shops
 
-Step 3's `page.goto()` is shared by every shop reached in steps 4-8 —
-Phase Eight, Self-Portrait, and Harvey Nichols do not have their own
+Step 3's `page.goto()` is shared by every shop reached in steps 4-9 —
+Phase Eight, Collard Manson, Self-Portrait, and Harvey Nichols do not have their own
 `page.goto()`/`shouldStop` preflight; they rely on this same shared call.
 Only Zalando (step 1) and Selfridges (step 2) bypass it with their own
 dedicated navigation.
@@ -474,6 +475,97 @@ Known limits:
 - Verified against the product used for investigation (row 18,
   `/en-GB/product/117062/...`). Other Tessabit product pages are assumed to
   follow the same markup but have not all been individually verified.
+
+## Collard Manson
+
+File: `src/shops/collardManson.js`
+
+URL match:
+
+- `collardmanson.co.uk`
+- `www.collardmanson.co.uk`
+
+Shopify store. Everything is read from the page's own origin; nothing is
+sent to another host. Dispatched from both `scrapeProductPage()` (A-column)
+and `scrapeImagesFromUrl()` (N-column, images only).
+
+Primary source: Shopify product JSON, `GET /products/{handle}.js` (fetched
+inside the page, same origin; `handle` comes from the page URL). It supplies
+images, variants (size, availability, SKU, quantity), vendor, and product
+`type`. The DOM supplies what the JSON does not carry reliably, and is the
+fallback for everything when the JSON cannot be fetched (a warning is added).
+
+Product data:
+
+- Name: `h1[itemprop="name"]`, JSON title fallback
+- Brand: `[itemprop="brand"]`, JSON vendor fallback
+- Price: `[itemprop="price"]` content, then JSON price (minor units / 100), then price text
+- Currency, in order: `meta[itemprop="currency"]`, `[itemprop="priceCurrency"]`,
+  JSON-LD offers, `og:price:currency`/`product:price:currency`, `Shopify.currency.active`,
+  price-text symbol. Non-GBP adds a warning; a page-vs-JSON price mismatch adds a warning
+- Category: JSON `type` (e.g. `Shoes`). The collection in the URL
+  (`/collections/rick-owens-jackets/`) is NOT used: it is a brand collection,
+  not the product's category
+- SKU / product code: variant SKU; when variants carry per-size SKUs
+  (`CODE-S`, `CODE-M`) and the description opens with the matching style
+  code, that code is used
+- Description: the `[itemprop="description"]` block, every line in page order,
+  with lines already contained in an earlier line removed (the page repeats
+  its material list). `og:description` is only a last resort. `features` is
+  the prose subset of the same text (SKU, model heading, colour, material,
+  HS code, style number, and made-in lines are excluded because they are
+  separate fields; shipping/duty boilerplate such as `All EU and USA orders are
+  sent DDP – Delivered Duty Paid.` and `Customs code: ...` is excluded too, but
+  stays in `description`)
+- Colour: `COLOR:` line in the description; else the short digit-free line
+  right after the description heading; else a single-valued Colour option
+- Material / composition: the `MATERIAL:` block (lines with `%` following it);
+  both fields hold the same text
+- Season: `<line> FW26 <collection>` pattern, e.g. `DRKSHDW FW26 / TOWER`
+  (`seasonCode` = `FW26`). The collection name is included only when the
+  model name marks where it ends
+- Country of origin: `MADE IN ...` line
+- Sizes: JSON variants on the `Size` option -> `sizes`, `availableSizes`,
+  `sizeVariants` (`size`, `available`, `sku`, `quantity`), `availability`
+  (`in_stock`, `partially_in_stock`, `out_of_stock`). DOM fallback reads only
+  this product's own cart form, because the page also renders quick-add
+  forms for related products
+- `dimensions` is intentionally left empty: it means garment/product
+  measurements (see `prompts/buyma-generation.md`), which this site does not
+  publish. The size list is not a measurement; instead `scraped.sizes` feeds
+  the `販売サイズ：` line in `productDetails` when there are no actual
+  measurements (see `docs/buyma-generation.md`)
+
+Images:
+
+- Primary: product JSON `images` (exact Shopify gallery order). Fallback: the
+  `.product_image_col` gallery in the DOM. There is no `document.images` fallback
+- Size variants of the same photo (`_medium`, `_large`, `_grande`, `_1024x1024`,
+  `_110x110@2x`, `?width=`/`?height=`) are collapsed to one entry, and the
+  original upload (highest resolution) is requested. The displayed `_1024x1024`
+  URL is kept as `sourceUrl`, which `src/images.js` uses if the original fails
+- Only `cdn.shopify.com` and `collardmanson.co.uk/cdn/shop/` URLs are accepted;
+  SVG is excluded
+- `canonicalKey` is host- and revision-independent
+- `excludeBelowWidth`: 400; max 15 images. No `warningWidth`: originals on
+  this site are around 830-900px wide, so a fixed warning would fire on every image
+
+Shipping: `COLLARD MANSON` is `{ fixed: 0 }` in `src/pricing.js`. Unchanged by
+this scraper.
+
+Known limits:
+
+- Verified against one product (`rick-owens-denim-shoes-du02f6811`), including
+  a run with the product-JSON request blocked to exercise the DOM fallback.
+  Other categories (clothing with several sizes/colours, sold-out items,
+  sale prices) are covered by offline unit checks of the parsing functions, not
+  by live pages
+- Sale price: `[itemprop="price"]` is treated as the price to pay. The
+  struck-through `.was_price` and Shopify's compare-at price are read only to
+  set `onSale` / `originalPrice`: `onSale` is `true` when either is higher than
+  the current price, `false` when the page was read and shows none, and `null`
+  when neither source could be read. `src/pricing.js` uses `onSale` to skip the
+  C-column percentage discount for sale items (see `docs/pricing-rules.md`)
 
 ## Selfridges
 

@@ -216,6 +216,7 @@ Current sheet title behavior: column E receives up to five generated title candi
 Current shop files are in `src/shops/`:
 
 - `vivienneWestwood.js`
+- `collardManson.js`
 - `hobbsLondon.js`
 - `zalando.js`
 - `harveyNichols.js`
