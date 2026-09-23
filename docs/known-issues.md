@@ -178,6 +178,37 @@ shop, so this does not bypass the project's existing access-control
 detection — it only replaces *how* the page is fetched, not how a genuine
 block is handled.
 
+### cruisefashion.com
+
+Same failure mode as flannels.com, confirmed with the same method: every
+`page.goto()` attempt (product page and bare homepage) fails with
+`net::ERR_HTTP2_PROTOCOL_ERROR`, while a plain `curl` GET on the same URL
+succeeds with HTTP 200 and the full page body (~395KB) — not a
+bot-challenge page. Likely the same underlying platform as flannels.com
+(both Frasers Group brands).
+
+Unlike flannels.com, no dedicated field extractor was needed:
+cruisefashion.com's product pages carry a single, complete schema.org
+`Product` JSON-LD block (`name`, `brand`, `offers.price`/`priceCurrency`,
+`color`, `description`, `sku`, `category`) that the existing generic
+JSON-LD extraction in `src/scraper.js` (`resolveGenericProductFields()`)
+already reads correctly once the page loads — verified end-to-end
+(name/brand/price/color/category/productCode/images all populated) against
+a real production URL. The site's own image CDN
+(`cdn.media.amplience.net`) is unaffected and loads fine through
+Playwright's `page.request.get()`.
+
+**Fix**: `src/shops/cruisefashion.js` mirrors `src/shops/flannels.js`'s
+`gotoFlannelsViaCurl()` exactly (`gotoCruiseFashionViaCurl()`) — fetches
+the page via `curl` and serves it to `page.goto()` through
+`page.route()`/`route.fulfill()`, so Chromium never makes its own network
+request to cruisefashion.com for the document. `src/scraper.js`'s
+`inspectGenericAccess()` and `scrapeImagesFromUrl()` each branch on
+`isCruiseFashionUrl()` alongside the existing `isFlannelsUrl()` branch;
+every other shop's code path is unchanged. No product-detail or image
+extractor was added, since the shared generic extraction already covers
+this shop's page structure.
+
 ### mytheresa.com
 
 mytheresa.com's product pages cannot be retrieved with any permitted

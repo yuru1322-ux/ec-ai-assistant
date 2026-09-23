@@ -51,6 +51,10 @@ const {
   extractFlannelsProductDetails
 } = require('./shops/flannels');
 const {
+  isCruiseFashionUrl,
+  gotoCruiseFashionViaCurl
+} = require('./shops/cruisefashion');
+const {
   isCollardMansonUrl,
   extractCollardMansonProductDetails,
   extractCollardMansonImages,
@@ -62,6 +66,12 @@ const {
   extractLabStoreWorldImages,
   LAB_STORE_WORLD_IMAGE_FAILURE_STATUS
 } = require('./shops/labStoreWorld');
+const {
+  isAllotmentStoreUrl,
+  extractAllotmentStoreProductDetails,
+  extractAllotmentStoreImages,
+  ALLOTMENT_STORE_IMAGE_FAILURE_STATUS
+} = require('./shops/allotmentstore');
 
 const GENERIC_ACCESS_FAILURE_STATUS = '要確認：A列の商品情報取得に失敗しました';
 // Exact status codes treated as a block. 5xx is handled separately as a
@@ -165,6 +175,20 @@ async function scrapeProductPage(page, url) {
     return {
       ...shopProductDetails,
       status: shopImageSources.length > 0 ? '' : LAB_STORE_WORLD_IMAGE_FAILURE_STATUS,
+      imageUrls: shopImageSources.map((image) => image.url),
+      imageSources: shopImageSources
+    };
+  }
+  if (isAllotmentStoreUrl(url)) {
+    const shopProductDetails = await extractAllotmentStoreProductDetails(page, url);
+    const shopImageSources = await extractAllotmentStoreImages(page);
+    if (shopProductDetails && shopProductDetails.extractionLog && shopProductDetails.extractionLog.color) {
+      const colorLog = shopProductDetails.extractionLog.color;
+      console.log(`Allotment Store色取得: ${colorLog.value || '未取得'} (${colorLog.source || '取得元なし'})`);
+    }
+    return {
+      ...shopProductDetails,
+      status: shopImageSources.length > 0 ? '' : ALLOTMENT_STORE_IMAGE_FAILURE_STATUS,
       imageUrls: shopImageSources.map((image) => image.url),
       imageSources: shopImageSources
     };
@@ -638,6 +662,8 @@ async function scrapeImagesFromUrl(page, url) {
     if (normalizeUrlForComparison(page.url()) !== normalizeUrlForComparison(url)) {
       if (isFlannelsUrl(url)) {
         await gotoFlannelsViaCurl(page, url, config.browser.timeoutMs);
+      } else if (isCruiseFashionUrl(url)) {
+        await gotoCruiseFashionViaCurl(page, url, config.browser.timeoutMs);
       } else {
         await page.goto(url, { waitUntil: 'domcontentloaded', timeout: config.browser.timeoutMs });
         await page.waitForLoadState('networkidle', { timeout: config.browser.timeoutMs }).catch(() => {});
@@ -652,6 +678,7 @@ async function scrapeImagesFromUrl(page, url) {
     if (isTessabitUrl(url)) return await extractTessabitImages(page);
     if (isCollardMansonUrl(url)) return await extractCollardMansonImages(page);
     if (isLabStoreWorldUrl(url)) return await extractLabStoreWorldImages(page);
+    if (isAllotmentStoreUrl(url)) return await extractAllotmentStoreImages(page);
 
     return await extractGenericImages(page);
   } catch (_) {
@@ -663,6 +690,8 @@ async function inspectGenericAccess(page, url, timeoutMs) {
   let status;
   if (isFlannelsUrl(url)) {
     status = (await gotoFlannelsViaCurl(page, url, timeoutMs)).status;
+  } else if (isCruiseFashionUrl(url)) {
+    status = (await gotoCruiseFashionViaCurl(page, url, timeoutMs)).status;
   } else {
     const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
     status = response ? response.status() : 0;
