@@ -690,6 +690,7 @@ const CATEGORY_PATTERNS = {
     /\bsweatshirts?\b/i,
     /\bhoodies?\b/i,
     /\bshorts\b/i,
+    /\bvests?\b/i,
     /アパレル/,
     /服/,
     /コート/,
@@ -706,7 +707,8 @@ const CATEGORY_PATTERNS = {
     /ジーンズ/,
     /ポロ/,
     /スウェット/,
-    /パーカー/
+    /パーカー/,
+    /ベスト/
   ],
   アクセサリー: [
     /\bjewellery\b/i,
