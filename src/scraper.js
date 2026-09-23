@@ -223,11 +223,25 @@ async function scrapeProductPage(page, url) {
 
   return page.evaluate(() => {
     const clean = (value) => (value || '').replace(/\s+/g, ' ').trim();
+    // Skips elements hidden via CSS (offsetParent is null for display:none,
+    // on the element itself or an ancestor; visibility:hidden is inherited
+    // by getComputedStyle so a hidden ancestor is caught on the element too).
+    // Needed because some Shopify themes keep off-canvas modals/drawers
+    // (account login, delivery info, etc.) in the DOM with real heading text
+    // (e.g. an h1 "Create account") that would otherwise outrank the actual,
+    // visible product title in querySelector's document-order match.
+    const isVisible = (element) => {
+      if (!element) return false;
+      if (element.offsetParent === null && getComputedStyle(element).position !== 'fixed') return false;
+      return getComputedStyle(element).visibility !== 'hidden';
+    };
     const textBySelector = (selectors) => {
       for (const selector of selectors) {
-        const element = document.querySelector(selector);
-        const value = clean(element && element.textContent);
-        if (value) return value;
+        for (const element of Array.from(document.querySelectorAll(selector))) {
+          if (!isVisible(element)) continue;
+          const value = clean(element.textContent);
+          if (value) return value;
+        }
       }
       return '';
     };
@@ -255,7 +269,7 @@ async function scrapeProductPage(page, url) {
       return clean(element.textContent);
     };
     const labeledText = (labels) => {
-      const candidates = Array.from(document.querySelectorAll('dt, th, strong, b, span, div, p'));
+      const candidates = Array.from(document.querySelectorAll('dt, th, strong, b, span, div, p')).filter(isVisible);
       for (const label of labels) {
         const found = candidates.find((node) => clean(node.textContent).replace(/[:：]/g, '') === label);
         if (!found) continue;
