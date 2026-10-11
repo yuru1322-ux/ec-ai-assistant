@@ -217,40 +217,54 @@ const PROFIT_UPPER_LIMITS = {
 
 const PROVISIONAL_SHIPPING_SHOPS = new Set([]);
 
-// Flat international shipping (GBP) that replaces the category/price-bucket
-// lookup in INTERNATIONAL_SHIPPING_GBP. Client-confirmed for MONCLER and only
-// for France-sourced orders (C-column note), see isFranceSourcedNote().
-const FLAT_INTERNATIONAL_SHIPPING_GBP = new Map([
-  ['MONCLER', 50]
-]);
+const INVALID_URL_WARNING = '要確認：商品URLを確認してください';
 
-// A retailer (non-moncler.com) row is treated as France-sourced only when the
-// client has said so explicitly in the C-column note — client-confirmed
-// instruction, not a URL/currency guess. Earlier this also matched on the
-// A-column URL's locale (hostname ending `.fr`, or a `/fr/`-style first path
-// segment) or on a EUR-denominated manual cost, but both produced false
-// positives (e.g. a `/fr/` locale picked for language reasons, unrelated to
-// where the item ships from), so detection is note-text-only now.
-const FRANCE_NOTE_PATTERN = /フランス/;
-const PURCHASE_NOTE_PATTERN = /買付|買い付け|仕入/;
+// Client-confirmed (2026-10-11): every row that is NOT bought and shipped in
+// the UK — Italy, France or Germany — gets a flat GBP 50 international
+// shipping (replacing the INTERNATIONAL_SHIPPING_GBP category table) and no
+// shop shipping, whatever the shop. This supersedes the earlier Moncler-only
+// "France-sourced = GBP 50" rule, which it now covers for every brand.
+const NON_UK_INTERNATIONAL_SHIPPING_GBP = 50;
 
-function isFranceSourcedNote(note) {
-  const text = String(note || '');
-  return FRANCE_NOTE_PATTERN.test(text) && PURCHASE_NOTE_PATTERN.test(text);
+// A row is non-UK only when the C-column note says so explicitly, whatever
+// the shop (client-confirmed: no per-shop country setting) — a client instruction, not a URL/currency guess (URL locale and EUR manual cost
+// were tried before for France and produced false positives). The note must
+// name the country next to a purchase/shipping word, in either order
+// (`フランス買付`, `イタリアから発送`, `買い付け国はドイツ`); the gap may not
+// cross a separator or bracket, so `イギリス買付（フランス製）` stays UK.
+const NON_UK_COUNTRY = '(イタリア|フランス|ドイツ)';
+const PURCHASE_OR_SHIPPING = '(?:買付|買い付け|仕入|発送)';
+const NOTE_GAP = '[^、。,，\\n()（）「」]{0,8}';
+const NON_UK_NOTE_PATTERN = new RegExp(
+  `${NON_UK_COUNTRY}${NOTE_GAP}${PURCHASE_OR_SHIPPING}|${PURCHASE_OR_SHIPPING}${NOTE_GAP}${NON_UK_COUNTRY}`,
+  'g'
+);
+const UK_COUNTRY = 'イギリス';
+const MULTIPLE_COUNTRIES_WARNING = '要確認：C列に買付・発送国が複数あります';
+
+function nonUkCountriesFromNote(note) {
+  const countries = Array.from(String(note || '').matchAll(NON_UK_NOTE_PATTERN), (match) => match[1] || match[2]);
+  return Array.from(new Set(countries));
 }
 
-// Client-confirmed rule: every row is treated as UK-shipped (and gets the flat
-// packaging fee below) unless the C-column note explicitly says France
-// shipping. Unlike isFranceSourcedNote() above (Moncler-only flat
-// international-shipping rate, which also requires a purchase-related
-// keyword), this check is brand/shop-agnostic and matches on "フランス" alone.
-function isFranceShippingNote(note) {
-  return FRANCE_NOTE_PATTERN.test(String(note || ''));
+// Two different countries in one note are not resolved by guessing: the row
+// stops for manual review.
+function resolvePurchaseCountry(note) {
+  const noteCountries = nonUkCountriesFromNote(note);
+  if (noteCountries.length > 1) return { country: '', warnings: [MULTIPLE_COUNTRIES_WARNING] };
+  if (noteCountries.length === 1) return { country: noteCountries[0], warnings: [] };
+  return { country: UK_COUNTRY, warnings: [] };
 }
 
-// Client-confirmed instruction (2026-09-06): UK-shipped orders add a flat
-// JPY 2000 packaging fee to the total purchase cost used for pricing.
-const UK_PACKAGING_FEE_JPY = 2000;
+// Client-confirmed packaging fee (JPY) added to the total purchase cost, by
+// purchase/shipping country: UK since 2026-09-06; France, Germany and Italy
+// added 2026-10-11 (previously non-UK rows had no fee).
+const PACKAGING_FEE_JPY = {
+  イギリス: 2000,
+  フランス: 2000,
+  ドイツ: 3000,
+  イタリア: 4000
+};
 
 // C-column instruction such as "20%オフ適用して価格計算してください（＊セール品を除く）".
 // Applied to the SCRAPED cost only (never to a D-column manual cost), and only
@@ -339,24 +353,23 @@ function calculatePricing({ sourceUrl, brandName, costGbp, category, productData
   warnings.push(...brandResult.warnings);
 
   const shopResult = resolveShop(sourceUrl);
-  blockingWarnings.push(...shopResult.warnings);
-  if (PROVISIONAL_SHIPPING_SHOPS.has(shopResult.shopName)) {
+  // Non-UK rows (see resolvePurchaseCountry()) have no shop shipping whatever
+  // the shop, so the shop only has to be a valid URL: an unregistered or
+  // manual-entry shop does not block them. A note naming several countries
+  // leaves the country empty and is blocked by its own warning.
+  const countryResult = resolvePurchaseCountry(note);
+  blockingWarnings.push(...countryResult.warnings);
+  const isNonUkRow = countryResult.country !== UK_COUNTRY;
+  blockingWarnings.push(...(isNonUkRow
+    ? shopResult.warnings.filter((warning) => warning === INVALID_URL_WARNING)
+    : shopResult.warnings));
+  if (!isNonUkRow && PROVISIONAL_SHIPPING_SHOPS.has(shopResult.shopName)) {
     warnings.push('要確認：ショップ送料が暫定値（0）です');
   }
-  // The flat rate is a France-sourcing rule (client-confirmed), NOT a
-  // moncler.com-URL rule: a moncler.com row is UK-sourced/UK-shipped unless the
-  // C-column note explicitly says the item was bought via a French site, and
-  // otherwise follows the normal category/price-bucket table. It applies to
-  // Moncler only (brand, or a moncler.com shop) — a client-confirmed rule for
-  // Moncler specifically, not a general France-shipping rule — and also covers
-  // rows sourced from another retailer (e.g. mytheresa.com) when the note says so.
-  const isMonclerFranceSourced = (normalizeBrandName(brandName) === 'MONCLER' || shopResult.shopName === 'MONCLER')
-    && isFranceSourcedNote(note);
-  const hasFlatInternationalShipping = isMonclerFranceSourced;
 
   const categoryResult = resolveShippingCategory({ category, productData, sourceUrl });
-  if (hasFlatInternationalShipping) {
-    // Category is informational (I-column) only for these shops; a failed
+  if (isNonUkRow) {
+    // Category is informational (I-column) only for non-UK rows; a failed
     // resolution must not block price calculation, since their source pages are
     // often in a language CATEGORY_PATTERNS does not recognize (e.g. French).
     blockingWarnings.push(...categoryResult.warnings.filter((warning) => warning !== '要確認：カテゴリー判定'));
@@ -382,13 +395,13 @@ function calculatePricing({ sourceUrl, brandName, costGbp, category, productData
     };
   }
 
-  const shopShippingGbp = calculateShopShipping(shopResult.shopName, normalizedCost);
+  const shopShippingGbp = isNonUkRow ? 0 : calculateShopShipping(shopResult.shopName, normalizedCost);
   if (!Number.isFinite(shopShippingGbp)) {
     blockingWarnings.push('要確認：ショップ送料未登録');
   }
 
-  const internationalShippingGbp = hasFlatInternationalShipping
-    ? FLAT_INTERNATIONAL_SHIPPING_GBP.get('MONCLER')
+  const internationalShippingGbp = isNonUkRow
+    ? NON_UK_INTERNATIONAL_SHIPPING_GBP
     : calculateInternationalShipping(normalizedCost, categoryResult.category);
   if (!Number.isFinite(internationalShippingGbp)) {
     blockingWarnings.push('要確認：カテゴリー判定');
@@ -405,12 +418,12 @@ function calculatePricing({ sourceUrl, brandName, costGbp, category, productData
     };
   }
 
-  const packagingFeeJpy = isFranceShippingNote(note) ? 0 : UK_PACKAGING_FEE_JPY;
+  const packagingFeeJpy = PACKAGING_FEE_JPY[countryResult.country];
   const costWithShopShippingGbp = normalizedCost + shopShippingGbp;
   const totalCostJpy = Math.ceil((costWithShopShippingGbp + internationalShippingGbp) * pricingSettings.gbpJpyRate) + packagingFeeJpy;
-  const minimumListingPrice = totalCostJpy / (1 - pricingSettings.buymaFeeRate - brandResult.marginRate);
-  const listingPriceJpy = roundUpListingPrice(minimumListingPrice);
-  const buymaFeeJpy = listingPriceJpy * pricingSettings.buymaFeeRate;
+  const listingPriceJpy = resolveListingPrice(totalCostJpy, pricingSettings.buymaFeeRate, brandResult.marginRate);
+  const buymaFixedFeeJpy = buymaFixedFee(listingPriceJpy);
+  const buymaFeeJpy = listingPriceJpy * pricingSettings.buymaFeeRate + buymaFixedFeeJpy;
   const profitJpy = listingPriceJpy - buymaFeeJpy - totalCostJpy;
   const profitRate = profitJpy / listingPriceJpy;
 
@@ -432,7 +445,10 @@ function calculatePricing({ sourceUrl, brandName, costGbp, category, productData
     internationalShippingGbp,
     customsDutyJpy: 0,
     consumptionTaxJpy: 0,
+    purchaseCountry: countryResult.country,
+    packagingFeeJpy,
     totalCostJpy,
+    buymaFixedFeeJpy,
     listingPriceJpy,
     profitRate: roundNumber(profitRate, 3),
     settings: {
@@ -515,7 +531,7 @@ function resolveShop(sourceUrl) {
   } catch (_) {
     return {
       shopName: '',
-      warnings: ['要確認：商品URLを確認してください']
+      warnings: [INVALID_URL_WARNING]
     };
   }
 
@@ -827,6 +843,32 @@ function calculateInternationalShipping(costGbp, category) {
   return bucket.prices[category];
 }
 
+// Client-confirmed (2026-10-11): BUYMA charges a flat fee per item on top of
+// BUYMA_FEE_RATE, by listing price band (each band's `max` is inclusive).
+const BUYMA_FIXED_FEE_JPY = [
+  { max: 9999, fee: 55 },
+  { max: 19999, fee: 110 },
+  { max: 99999, fee: 165 },
+  { max: Infinity, fee: 220 }
+];
+
+function buymaFixedFee(listingPriceJpy) {
+  return BUYMA_FIXED_FEE_JPY.find((band) => listingPriceJpy <= band.max).fee;
+}
+
+// The fixed fee depends on the listing price it is part of, so start from the
+// lowest band's fee and move up while the rounded price lands in a band with a
+// higher fee. Fees only grow with price, so this ends within a few steps.
+function resolveListingPrice(totalCostJpy, buymaFeeRate, marginRate) {
+  let fixedFee = BUYMA_FIXED_FEE_JPY[0].fee;
+  for (;;) {
+    const listingPriceJpy = roundUpListingPrice((totalCostJpy + fixedFee) / (1 - buymaFeeRate - marginRate));
+    const bandFee = buymaFixedFee(listingPriceJpy);
+    if (bandFee <= fixedFee) return listingPriceJpy;
+    fixedFee = bandFee;
+  }
+}
+
 function roundUpListingPrice(value) {
   const unit = value < 100000 ? 100 : 1000;
   return Math.ceil(value / unit) * unit;
@@ -848,10 +890,10 @@ module.exports = {
   SHOP_DOMAINS,
   SHOP_SHIPPING_RULES,
   PROVISIONAL_SHIPPING_SHOPS,
-  FLAT_INTERNATIONAL_SHIPPING_GBP,
+  NON_UK_INTERNATIONAL_SHIPPING_GBP,
   INTERNATIONAL_SHIPPING_GBP,
-  UK_PACKAGING_FEE_JPY,
-  isFranceShippingNote,
+  PACKAGING_FEE_JPY,
+  resolvePurchaseCountry,
   parseNoteDiscount,
   applyNoteDiscount,
   describeNoteDiscountForManualCost,
@@ -863,5 +905,7 @@ module.exports = {
   resolveShippingCategory,
   normalizeBrandName,
   normalizeHostname,
+  BUYMA_FIXED_FEE_JPY,
+  buymaFixedFee,
   roundUpListingPrice
 };

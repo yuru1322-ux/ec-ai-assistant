@@ -226,7 +226,7 @@ Examples:
 - SELF PORTRAIT: GBP 0 fixed
 - SELFRIDGES: GBP 0 fixed, but Selfridges scraping is currently disabled by protection logic
 - PHASE EIGHT: free at GBP 150+, otherwise GBP 4
-- MONCLER: GBP 0 fixed — confirmed by the client (see "Flat International Shipping" below for its international-shipping treatment)
+- MONCLER: GBP 0 fixed — confirmed by the client (non-UK rows: see "Non-UK Purchase / Shipping" below)
 - LAB STORE WORLD: GBP 10 fixed — domains `labstorelondon.com` and `labstoreworld.com`
 - MINOX BOUTIQUE: free at GBP 300+, otherwise GBP 8 — confirmed via the 2026-09 shop shipping list
 - STUDIO: GBP 5 fixed — confirmed via the 2026-09 shop shipping list; no domain is registered in `SHOP_DOMAINS` yet, so URLs from this shop will not auto-resolve to it until a domain is confirmed and added
@@ -249,62 +249,42 @@ This does not stop price calculation. Once a shop's real shipping terms are know
 update its `SHOP_SHIPPING_RULES` entry and remove it from `PROVISIONAL_SHIPPING_SHOPS`
 — the warning stops appearing automatically.
 
-### Flat International Shipping
+### Non-UK Purchase / Shipping (Flat GBP 50)
 
-`FLAT_INTERNATIONAL_SHIPPING_GBP` in `src/pricing.js` lists shops whose international
-shipping is a single confirmed GBP amount regardless of category or price bracket,
-bypassing `INTERNATIONAL_SHIPPING_GBP` entirely:
+Client-confirmed (2026-10-11): every row that is **not** bought and shipped in
+the UK — Italy, France or Germany — is priced, whatever the shop, with:
+
+- shop shipping (J) = GBP 0 (the shop's `SHOP_SHIPPING_RULES` entry is not used)
+- international shipping (K) = `NON_UK_INTERNATIONAL_SHIPPING_GBP` (GBP 50),
+  instead of the `INTERNATIONAL_SHIPPING_GBP` category/price-bucket table
+- the country's packaging fee (see "Packaging Fee" below)
+
+A row is non-UK only from the C-column note — there is no per-shop country
+setting (client decision, 2026-10-11: every shop, including Il Duomo, is decided
+by column C). The note (`nonUkCountriesFromNote()`) must name `イタリア`,
+`フランス` or `ドイツ` next to a purchase/shipping word (`買付`, `買い付け`,
+`仕入`, `発送`), in either order, with at most 8 characters between them and no
+separator or bracket (`、。,，()（）「」`, newline) in between.
 
 ```text
-MONCLER: GBP 50 fixed (client-confirmed, applies ONLY to French-sourced Moncler
-orders regardless of category or cost)
+non-UK: フランス買付 / イタリアから発送 / 買い付け国はドイツ / フランスのサイトで買付
+UK:     買い付け国はイギリス、発送国もイギリス / イギリス買付（フランス製） / フランス / ドイツ製
 ```
 
-The flat rate is **not** triggered by the `moncler.com` URL. A Moncler row is
-UK-sourced/UK-shipped by default and uses the normal category/price-bucket table
-(e.g. アパレル: 25 up to GBP 250, 28 up to 599, 40 from 600); it gets the flat
-GBP 50 only when the C-column note says France was the purchase route (see
-"France Detection Beyond moncler.com"). Earlier code applied GBP 50 to every
-`moncler.com` row; corrected on the client's instruction.
+A bare country name is not enough (client decision: country + purchase/shipping
+word). Detection is note-text-only: URL locale (`.fr`, `/fr/`) and a EUR D-column
+manual cost were used for France in the past and produced false positives.
 
-For these shops, a failed category resolution (`要確認：カテゴリー判定`) does **not**
-block price calculation — it is dropped instead of added to the blocking warnings.
-This exists because Moncler's official site (`moncler.com`) is in French
-(`doudoune`, `manteaux`, etc.), which `CATEGORY_PATTERNS` does not recognize, and
-category is not needed to determine shipping for these shops anyway. Column I
-(category) is populated only when resolution succeeds and is left blank otherwise;
-this does not affect J/K/L/M, which calculate identically either way.
+Because shop shipping is 0 for these rows, an unregistered shop
+(`要確認：ショップ送料未登録`) or a manual-entry shop in `SPECIAL_SHOPS`
+(`要確認：ショップ送料を手入力してください`) does not block them; only an invalid
+A-column URL does. A failed category resolution does not block them either
+(category is not needed for shipping; column I is left blank).
 
-#### France Detection Beyond moncler.com
-
-The GBP 50 flat rate above is triggered only when **both** of these hold:
-
-- the row is Moncler: brand (B column, normalized) is `MONCLER`, or the A-column
-  resolves to the `MONCLER` shop (`moncler.com`), and
-- `isFranceSourcedNote(note)` is true: the C-column note (passed to
-  `calculatePricing()` as `note`) contains both `フランス` and a purchase-related
-  keyword (`買付`, `買い付け`, or `仕入`) — i.e. an explicit client instruction
-  that the item was bought via a French site.
-
-This covers Moncler product rows sourced through a third-party retailer (e.g.
-mytheresa.com) whose own moncler.com listing could not be scraped (bot-blocked,
-soft-blocked, etc.): when the client's C-column note says so explicitly, the
-flat GBP 50 rate applies instead of falling back to the category/price-bucket
-table. This is scoped to brand=Moncler specifically (a client-confirmed rule
-for this brand); it is not a general "any French purchase gets GBP 50" rule
-for other brands.
-
-Detection used to also trigger on the A-column URL's locale (hostname ending
-`.fr`, or a `/fr/`-style first path segment) or on a EUR-denominated D-column
-manual cost, without requiring a C-column note. Both produced false positives
-(e.g. a `/fr/` URL segment picked for language reasons, unrelated to where the
-item actually ships from) and were replaced with the note-only check above —
-client confirmation, not a guess from the URL or currency.
-
-When triggered, `internationalShippingGbp` is `FLAT_INTERNATIONAL_SHIPPING_GBP.get('MONCLER')`.
-Because the flat rate no longer applies to every `moncler.com` row, a Moncler row
-without the France note must resolve a category (column I, product name, etc.);
-`要確認：カテゴリー判定` blocks it like any other shop.
+This replaces the earlier Moncler-only rule (`moncler.com`/brand Moncler + a
+`フランス` + purchase-word note = GBP 50). A Moncler row bought and shipped in the
+UK still uses the normal category table (e.g. アパレル: 25 up to GBP 250, 28 up
+to 599, 40 from 600).
 
 ## International Shipping
 
@@ -441,37 +421,60 @@ Important:
 
 - Do not use the older formula that added customs duty or consumption tax to total cost.
 - `customsDutyJpy` and `consumptionTaxJpy` are currently returned as 0.
-- `packagingFeeJpy` is the UK packaging fee described below. It is folded directly
+- `packagingFeeJpy` is the per-country packaging fee described below. It is folded directly
   into `totalCostJpy` — there is no separate sheet column for it, and J
   (`原価＋ショップ配送料（GBP）`) and K (`国際送料（GBP）`) are unaffected. It only shows
   up indirectly through a higher L (`出品価格`) for the same M (`利益率`) target.
 
-### UK Packaging Fee
+### Packaging Fee
 
-Client-confirmed instruction (2026-09-06): every row is treated as UK-shipped by
-default and gets a flat `UK_PACKAGING_FEE_JPY` (JPY 2000) added to
-`totalCostJpy`, **unless** the C-column note (`備考欄`) indicates France
-shipping.
+Client-confirmed: a flat packaging fee (`PACKAGING_FEE_JPY`) is added to
+`totalCostJpy`, by purchase/shipping country:
 
-France-shipping detection for this rule is `isFranceShippingNote(note)` in
-`src/pricing.js`: a simple test for the substring `フランス` anywhere in the
-C-column note, no other keyword required. This is intentionally
-brand/shop-agnostic — it is unrelated to `isFranceSourcedNote()` (used only for
-the Moncler flat GBP 50 international-shipping rate above), which requires
-both `フランス` and a purchase-related keyword (`買付`/`買い付け`/`仕入`) and only
-applies when brand is Moncler. A row can trigger one, both, or neither check
-independently.
+```text
+イギリス  JPY 2000   (since 2026-09-06)
+フランス  JPY 2000   (2026-10-11)
+ドイツ    JPY 3000   (2026-10-11)
+イタリア  JPY 4000   (2026-10-11)
+```
 
-Do not change the JPY 2000 amount or the note-matching pattern without an
-explicit client instruction.
+The country comes from `resolvePurchaseCountry(note)` in `src/pricing.js`: the
+country found by the non-UK C-column check (see "Non-UK Purchase / Shipping"
+above — country next to `買付`/`買い付け`/`仕入`/`発送`), otherwise イギリス.
+
+If the note names two different non-UK countries (e.g. `フランス買付、イタリア発送`)
+the row stops with `要確認：C列に買付・発送国が複数あります` rather than picking one.
+
+Until 2026-10-11 non-UK rows (and any note containing a bare `フランス`) had no
+packaging fee; that exemption is gone. A bare `フランス` note without a
+purchase/shipping word is a UK row (JPY 2000, UK shipping tables).
+
+Do not change the amounts or the note-matching pattern without an explicit
+client instruction.
 
 ## Listing Price
 
-Minimum listing price:
+BUYMA fees are `BUYMA_FEE_RATE` (from the 設定 tab) **plus** a flat per-item fee
+by listing price band (`BUYMA_FIXED_FEE_JPY` in `src/pricing.js`,
+client-confirmed 2026-10-11):
 
 ```text
-minimumListingPrice = totalCostJpy / (1 - BUYMA_FEE_RATE - brandMarginRate)
+listing price  ~ 9,999       JPY 55
+10,000 ~ 19,999              JPY 110
+20,000 ~ 99,999              JPY 165
+100,000 ~                    JPY 220
 ```
+
+Minimum listing price, for the band's fixed fee:
+
+```text
+minimumListingPrice = (totalCostJpy + buymaFixedFeeJpy) / (1 - BUYMA_FEE_RATE - brandMarginRate)
+```
+
+Because the fixed fee depends on the listing price itself,
+`resolveListingPrice()` starts with the lowest band's fee and, if the rounded
+price falls in a band with a higher fee, recalculates with that fee until the
+band is stable.
 
 Rounding:
 
@@ -481,7 +484,7 @@ Rounding:
 Profit:
 
 ```text
-buymaFeeJpy = listingPriceJpy * BUYMA_FEE_RATE
+buymaFeeJpy = listingPriceJpy * BUYMA_FEE_RATE + buymaFixedFeeJpy(listingPriceJpy)
 profitJpy = listingPriceJpy - buymaFeeJpy - totalCostJpy
 profitRate = profitJpy / listingPriceJpy
 ```
