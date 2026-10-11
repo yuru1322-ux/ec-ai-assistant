@@ -89,6 +89,8 @@ Cost resolution order (`determineCost()` in `src/index.js`):
 
 The final GBP cost (whichever source it came from) is written back to column D, so a EUR manual entry is replaced by its GBP-converted number after the first run. Because the replaced value contains no currency marker, re-processing the row a second time parses it as a plain GBP number and does not convert it twice.
 
+The currency marker can also come from the cell's **number format** rather than its text: a client typing a EUR cost may format the cell as currency (e.g. `#,##0.00"€"`), and since column D is read as `FORMATTED_VALUE`, the GBP number written back would then be read as `301.00€` (EUR) and converted a second time — besides displaying a GBP amount with a € sign. To prevent this, `writeResult()` in `src/sheets.js` clears column D's number format (back to automatic) whenever it writes a non-empty cost (`clearCostNumberFormat()`; formatting only, the value is unchanged).
+
 ## Alternate Info Source (Column N)
 
 When column N contains a URL, `src/index.js` scrapes it (via `scrapeProductPage()`) in addition to the A-column URL, and merges the two results with `mergeSourceData()`:

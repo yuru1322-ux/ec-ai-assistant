@@ -84,6 +84,37 @@ async function setInfoSourceManualImageHighlight(sheets, rowNumber, needsManualI
   });
 }
 
+// Column D is also the manual-cost input, and a client may give the cell a
+// currency number format (e.g. `#,##0.00"€"`) when typing a EUR cost. The
+// value written back is always GBP, so that format would show a GBP amount
+// with a € sign. Clearing the cell's number format (back to automatic) makes
+// D display a plain number like every other row. Formatting only.
+async function clearCostNumberFormat(sheets, rowNumber) {
+  const sheetId = await getSheetId(sheets, config.google.sheetName);
+  const rowIndex = rowNumber - 1;
+  const columnIndex = OUTPUT_COLUMNS.cost - 1;
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId: config.google.sheetId,
+    requestBody: {
+      requests: [
+        {
+          repeatCell: {
+            range: {
+              sheetId,
+              startRowIndex: rowIndex,
+              endRowIndex: rowIndex + 1,
+              startColumnIndex: columnIndex,
+              endColumnIndex: columnIndex + 1
+            },
+            cell: { userEnteredFormat: {} },
+            fields: 'userEnteredFormat.numberFormat'
+          }
+        }
+      ]
+    }
+  });
+}
+
 async function getSheetsClient() {
   let auth;
 
@@ -219,6 +250,10 @@ async function writeResult(sheets, rowNumber, result) {
       data: updates
     }
   });
+
+  if (cellValue(result.cost) !== '') {
+    await clearCostNumberFormat(sheets, rowNumber);
+  }
 }
 
 module.exports = {
