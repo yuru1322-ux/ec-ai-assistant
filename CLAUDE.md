@@ -219,6 +219,7 @@ Current shop files are in `src/shops/`:
 - `collardManson.js`
 - `labStoreWorld.js`
 - `hobbsLondon.js`
+- `ilDuomo.js`
 - `zalando.js`
 - `harveyNichols.js`
 - `selfPortrait.js`

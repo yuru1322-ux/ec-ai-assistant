@@ -12,7 +12,7 @@ Dedicated shop scrapers must not be weakened into broad `document.images` extrac
    Status Detection below)
 4. Phase Eight
 5. Collard Manson
-6. Lab Store World
+6. Lab Store World, Allotment Store, Il Duomo
 7. Self-Portrait
 8. Harvey Nichols
 9. Vivienne Westwood or Hobbs London
@@ -661,6 +661,39 @@ Known limits:
 - The generic image extraction defect that motivated this scraper (URL variants
   of one photo counted as separate images) is deliberately not changed here; see
   `docs/known-issues.md`, "Generic Scraper"
+
+## Il Duomo
+
+File: `src/shops/ilDuomo.js`
+
+URL match:
+
+- `ilduomo.it`, `www.ilduomo.it`
+
+Shopify store. Everything comes from `/products/{handle}.js`, requested with an
+explicit `?country=IT&currency=EUR`:
+
+- Price is market-dependent (Shopify Markets): EU destinations get the
+  VAT-inclusive price (e.g. EUR 1730.00), non-EU destinations (GB, JP) the
+  VAT-free one (EUR 1418.03). Client decision (2026-10-11): cost is the
+  **Italian VAT-inclusive price**. Without the explicit market the result would
+  follow the A-column URL's `country=` parameter (Google Shopping links carry
+  `country=GB`), so the DOM/og/JSON-LD price is never used as a fallback — a
+  missing product JSON leaves the price empty.
+- Currency: EUR (converted to GBP via `EUR_GBP_RATE` downstream).
+- Images: only the product JSON `images` array (the page also renders dozens of
+  other products' images). No DOM fallback.
+- Category: product JSON `type`, else the lowercase word tags
+  (`clothing / coat/outerwear / puffer`).
+- Product code: variant SKUs minus the `-{size}` suffix, when all agree.
+- Color/material/origin: not provided in a structured form (the description is
+  one prose paragraph), so left empty rather than guessed.
+
+Shipping: no per-shop setting. `ilduomo.it` is not in `SHOP_DOMAINS`; like any
+shop, a row is priced as non-UK (GBP 50, no shop shipping, country packaging
+fee) only when the C-column note says so, e.g. `イタリア買付` — see
+`docs/pricing-rules.md`, "Non-UK Purchase / Shipping". Without such a note the
+row is treated as UK and stops with `要確認：ショップ送料未登録`.
 
 ## Selfridges
 

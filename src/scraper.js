@@ -72,6 +72,12 @@ const {
   extractAllotmentStoreImages,
   ALLOTMENT_STORE_IMAGE_FAILURE_STATUS
 } = require('./shops/allotmentstore');
+const {
+  isIlDuomoUrl,
+  extractIlDuomoProductDetails,
+  extractIlDuomoImages,
+  IL_DUOMO_IMAGE_FAILURE_STATUS
+} = require('./shops/ilDuomo');
 
 const GENERIC_ACCESS_FAILURE_STATUS = '要確認：A列の商品情報取得に失敗しました';
 // Exact status codes treated as a block. 5xx is handled separately as a
@@ -189,6 +195,16 @@ async function scrapeProductPage(page, url) {
     return {
       ...shopProductDetails,
       status: shopImageSources.length > 0 ? '' : ALLOTMENT_STORE_IMAGE_FAILURE_STATUS,
+      imageUrls: shopImageSources.map((image) => image.url),
+      imageSources: shopImageSources
+    };
+  }
+  if (isIlDuomoUrl(url)) {
+    const shopProductDetails = await extractIlDuomoProductDetails(page, url);
+    const shopImageSources = await extractIlDuomoImages(page);
+    return {
+      ...shopProductDetails,
+      status: shopImageSources.length > 0 ? '' : IL_DUOMO_IMAGE_FAILURE_STATUS,
       imageUrls: shopImageSources.map((image) => image.url),
       imageSources: shopImageSources
     };
@@ -679,6 +695,7 @@ async function scrapeImagesFromUrl(page, url) {
     if (isCollardMansonUrl(url)) return await extractCollardMansonImages(page);
     if (isLabStoreWorldUrl(url)) return await extractLabStoreWorldImages(page);
     if (isAllotmentStoreUrl(url)) return await extractAllotmentStoreImages(page);
+    if (isIlDuomoUrl(url)) return await extractIlDuomoImages(page);
 
     return await extractGenericImages(page);
   } catch (_) {
