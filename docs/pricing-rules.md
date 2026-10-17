@@ -391,6 +391,18 @@ apparel keyword. A product whose site category is `Jogger Shorts` used to fall
 through to the description text and be classified `バッグ・靴` because of
 `pocket bags`, giving the wrong international shipping.
 
+### Combined bag/wallet site categories
+
+When the explicit category text matches both `革小物` and `バッグ・靴` (e.g. Lab
+Store World's `Handbags, Wallets & Cases`), it cannot tell a wallet from a bag:
+the `革小物`-first priority classified a bumbag as `革小物` (international
+shipping £28 instead of £45). For such a mixed category the source URL, then the
+product name, decides between `革小物` and `バッグ・靴`. Only when neither matches
+one of those two is the explicit match (`革小物`) used, as before.
+
+`bumbag`, `belt bag`, `waist bag`, `fanny pack`, `ウエストバッグ` and
+`ボディバッグ` are `バッグ・靴` keywords.
+
 ### URL collection segment (Collard Manson only)
 
 For `collardmanson.co.uk`, the `/collections/{handle}/` part of the URL is

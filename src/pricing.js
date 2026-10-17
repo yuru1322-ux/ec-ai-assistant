@@ -608,7 +608,14 @@ function resolveShippingCategory({ category, productData = {}, sourceUrl = '' })
     'アクセサリー',
     '大型'
   ], 'category');
-  if (explicitMatch) return { ...explicitMatch, possibleLeatherShoes, warnings: [] };
+  // A combined site category such as Lab Store World's "Handbags, Wallets &
+  // Cases" matches both 革小物 and バッグ・靴, so it cannot tell a wallet from a
+  // bag. Let the URL or product name decide between the two; only when neither
+  // does is the explicit match (革小物 first) used as before.
+  const explicitIsBagOrWalletMix = explicitMatch
+    && matchedCategoryKeyword(explicitText, CATEGORY_PATTERNS.革小物)
+    && matchedCategoryKeyword(explicitText, CATEGORY_PATTERNS['バッグ・靴']);
+  if (explicitMatch && !explicitIsBagOrWalletMix) return { ...explicitMatch, possibleLeatherShoes, warnings: [] };
 
   const urlMatch = firstCategoryMatch(urlText, [
     '革小物',
@@ -617,8 +624,6 @@ function resolveShippingCategory({ category, productData = {}, sourceUrl = '' })
     'アクセサリー',
     '大型'
   ], 'url');
-  if (urlMatch) return { ...urlMatch, possibleLeatherShoes, warnings: [] };
-
   const nameMatch = firstCategoryMatch(nameText, [
     '革小物',
     'アクセサリー',
@@ -626,6 +631,15 @@ function resolveShippingCategory({ category, productData = {}, sourceUrl = '' })
     'アパレル',
     '大型'
   ], 'product name');
+
+  if (explicitIsBagOrWalletMix) {
+    const decider = [urlMatch, nameMatch]
+      .find((match) => match && (match.category === '革小物' || match.category === 'バッグ・靴'));
+    const resolved = decider || explicitMatch;
+    return { ...resolved, possibleLeatherShoes, warnings: [] };
+  }
+
+  if (urlMatch) return { ...urlMatch, possibleLeatherShoes, warnings: [] };
   if (nameMatch) return { ...nameMatch, possibleLeatherShoes, warnings: [] };
 
   const supportMatch = firstCategoryMatch(supportText, [
@@ -667,6 +681,10 @@ const CATEGORY_PATTERNS = {
     /\bshoulder\s+bags?\b/i,
     /\btotes?\b/i,
     /\bbackpacks?\b/i,
+    /\bbum\s*bags?\b/i,
+    /\bbelt\s*bags?\b/i,
+    /\bwaist\s*bags?\b/i,
+    /\bfanny\s*packs?\b/i,
     /\bshoes?\b/i,
     /\bboots?\b/i,
     /\bsneakers?\b/i,
@@ -676,6 +694,8 @@ const CATEGORY_PATTERNS = {
     /バッグ/,
     /鞄/,
     /ショルダーバッグ/,
+    /ウエストバッグ/,
+    /ボディバッグ/,
     /トート/,
     /靴/,
     /ブーツ/,
