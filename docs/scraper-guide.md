@@ -12,7 +12,7 @@ Dedicated shop scrapers must not be weakened into broad `document.images` extrac
    Status Detection below)
 4. Phase Eight
 5. Collard Manson
-6. Lab Store World, Allotment Store, Il Duomo
+6. Lab Store World, Allotment Store, Il Duomo, Ted Baker
 7. Self-Portrait
 8. Harvey Nichols
 9. Vivienne Westwood or Hobbs London
@@ -701,6 +701,49 @@ shop, a row is priced as non-UK (GBP 50, no shop shipping, country packaging
 fee) only when the C-column note says so, e.g. `イタリア買付` — see
 `docs/pricing-rules.md`, "Non-UK Purchase / Shipping". Without such a note the
 row is treated as UK and stops with `要確認：ショップ送料未登録`.
+
+## Ted Baker
+
+File: `src/shops/tedBaker.js`
+
+URL match:
+
+- `tedbaker.com`, `www.tedbaker.com`
+
+Shopify store. Product data comes from `{locale}/products/{handle}.js`, requested
+with an explicit `?country=GB&currency=GBP`:
+
+- The explicit market is required, not optional: once the page has fully loaded
+  (the shared `page.goto()` waits for network idle), a site script sets a
+  `cart_currency=USD` cookie, and the plain `.js` request then returns 404. The
+  explicit GB/GBP request keeps working and also pins the price to GBP whatever
+  locale the A-column URL uses. A request without cookies returns 429, so the
+  page's own session is used.
+- Price/currency: product JSON `price`, GBP. No DOM/JSON-LD fallback; a missing
+  JSON leaves the price empty (`要確認：価格取得失敗`).
+- Sale: `compare_at_price` greater than `price` (full-price products carry an
+  equal `compare_at_price`).
+- Brand: fixed `TED BAKER`. The Shopify `vendor` is the operating company
+  (`New Lobster Limited`) and must not reach the title.
+- Color: the variants' `COLOR` option, when all variants agree (each handle is
+  one colour, e.g. `viviin-black`).
+- Sizes/availability: the `SIZE` option per variant.
+- Composition: the "Fabric & Care" collapsible tab (`.wt-collapse__target__content`);
+  the line with a percentage is the composition, the rest is care text.
+- Features/dimensions: the description's `<li>` items; `Dimensions:` line.
+- Category: product JSON `type` (`Purses`, `Long Sleeve Shirts`, ...).
+- Images: only the product JSON `images` array (JSON-LD/og list only the first
+  photo, in several URL variants, which the generic path counted as 3 images).
+- Product code: left empty. The page shows no style code, and variant SKUs are
+  EAN barcodes (kept per size in `sizeVariants`), so rows show
+  `商品コード取得失敗`.
+- Country of origin: not provided.
+
+Shipping: `TED BAKER` in `SHOP_SHIPPING_RULES` (GBP 4 below GBP 150, free at or
+above).
+
+Verified 2026-10-17 against `viviin-black` (full price, one size) and
+`diaby-pl-blue` (on sale, multiple sizes, one size out of stock).
 
 ## Selfridges
 
