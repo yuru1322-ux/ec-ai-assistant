@@ -37,6 +37,13 @@ N-column URL, it records the status as a note and continues processing with
 the N-column data and the D-column manual cost, unaffected by the A-column
 failure.
 
+The N-column URL goes through the same `scrapeProductPage()`, so a blocked
+N-column site (e.g. vitkac.com, HTTP 403) also returns the A-column-worded
+status. `src/index.js` rewords it to
+`要確認：情報取得元URL（N列）の商品情報取得に失敗しました（HTTP {status}）` so the
+sheet does not report an A-column failure when the A-column scrape succeeded.
+Shop-specific stop statuses (e.g. Selfridges) are kept as they are.
+
 This only detects a blocking HTTP status code. It does not detect a "soft
 block" — a page that returns HTTP 200 but serves a bot-challenge or error
 page in its body (observed on mytheresa.com: HTTP 200 with a "Something

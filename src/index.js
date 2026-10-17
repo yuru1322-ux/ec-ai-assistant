@@ -11,6 +11,7 @@ const { generateBuymaContent } = require('./openaiClient');
 const { calculatePricing, applyNoteDiscount, describeNoteDiscountForManualCost } = require('./pricing');
 
 const A_COLUMN_ACCESS_FAILURE_STATUS = '要確認：A列の商品情報取得に失敗しました';
+const INFO_SOURCE_ACCESS_FAILURE_STATUS = '要確認：情報取得元URL（N列）の商品情報取得に失敗しました';
 
 async function main() {
   await ensureDir(config.imagesDir);
@@ -88,7 +89,7 @@ async function processProduct({ browser, sheets, settings, product }) {
       try {
         const infoScraped = await scrapeProductPage(infoPage, infoSourceUrl);
         if (infoScraped.shouldStop) {
-          extraNotes.push(infoScraped.status || infoScraped.reason || '要確認：情報取得元URL（N列）の商品情報取得に失敗しました');
+          extraNotes.push(infoSourceStopStatus(infoScraped));
         } else {
           nScraped = infoScraped;
         }
@@ -396,6 +397,15 @@ function extractStatusReasons(message) {
     .split(/[、,\n]/)
     .map((part) => part.replace(/^要確認[:：]\s*/, '').replace(/^エラー[:：]\s*/, '').trim())
     .filter(Boolean);
+}
+
+// The scraper's generic block status is worded for the A column; when it comes
+// from the N-column URL it is reworded so the sheet does not blame the A column.
+function infoSourceStopStatus(infoScraped) {
+  const status = infoScraped.status || '';
+  if (status && status !== A_COLUMN_ACCESS_FAILURE_STATUS) return status;
+  const reason = infoScraped.reason ? `（${infoScraped.reason}）` : '';
+  return `${INFO_SOURCE_ACCESS_FAILURE_STATUS}${reason}`;
 }
 
 function resolveImageStatus(imageFileNameCount, infoSourceUrl, infoSourceInvalid) {
