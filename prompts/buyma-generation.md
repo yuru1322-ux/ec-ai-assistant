@@ -97,6 +97,7 @@ Natural wording preferences:
 - Use `留め具付き` or `スイベルクラスプ付き` instead of `着脱が容易`.
 - Use `印象的`, `アクセント`, `目を引く`, or `際立つ` instead of `存在感を発揮`, only when supported by source features.
 - Translate `tone-on-tone` as `同系色` or `同色系`; never output `トーンオン`, `トーンオントーン`, or `トーンオンカラー`.
+- Translate `pankou` / `pankou closures` (Chinese knot buttons) as `チャイナボタン` / `チャイナボタン留め`; never output `パンコウ`, `パンクロ`, or `パンクロー`.
 
 The following terms may be used only when explicitly present in scraped official product data:
 
@@ -387,6 +388,7 @@ Rules:
 - Do not add features not present in the input.
 - Translate naturally without changing meaning.
 - Translate `tone-on-tone` as `同系色` or `同色系`; do not output `トーンオン`, `トーンオントーン`, or `トーンオンカラー`.
+- Translate `pankou` / `pankou closures` as `チャイナボタン` / `チャイナボタン留め`; do not output `パンコウ`, `パンクロ`, or `パンクロー`.
 - Do not include measurement-only items under `仕様・特徴：`; move them to `サイズ：` when usable.
 - Do not include weight-only items under `仕様・特徴：`; move them to `重量：`.
 - Do not include return notes.

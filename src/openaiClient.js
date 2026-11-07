@@ -55,12 +55,25 @@ async function generateBuymaContent(productInfo) {
   return sanitizeGeneratedContent(JSON.parse(outputText), productInfo);
 }
 
+// Fixed translations the prompt asks for (prompt "Natural wording
+// preferences") but the model does not reliably follow: `pankou closures` came
+// back as `パンコウ留め` / `パンクロ留め具` / `パンクロー開閉` even with the rule.
+// `パンクロ` must not touch `パンクロック`.
+const TERM_REPLACEMENTS = [
+  [/(?:パンコウ|パンクロー?(?!ック))(?:の)?(?:留め具|留め|開閉|クロージャー)/g, 'チャイナボタン留め'],
+  [/パンコウ|パンクロー?(?!ック)/g, 'チャイナボタン']
+];
+
+function applyTermReplacements(value) {
+  return TERM_REPLACEMENTS.reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), String(value || ''));
+}
+
 function sanitizeGeneratedContent(generated, productInfo) {
   const sanitized = {
-    title: generated.title || '',
-    titleCandidates: Array.isArray(generated.titleCandidates) ? generated.titleCandidates : [],
-    description: removeUnavailableText(generated.description || ''),
-    productDetails: removeUnavailableText(generated.productDetails || '')
+    title: applyTermReplacements(generated.title),
+    titleCandidates: Array.isArray(generated.titleCandidates) ? generated.titleCandidates.map(applyTermReplacements) : [],
+    description: removeUnavailableText(applyTermReplacements(generated.description)),
+    productDetails: removeUnavailableText(applyTermReplacements(generated.productDetails))
   };
   const scraped = (productInfo && productInfo.scraped) || {};
   if (!hasUsableDimensions(scraped)) {
