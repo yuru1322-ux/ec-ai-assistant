@@ -12,7 +12,7 @@ Dedicated shop scrapers must not be weakened into broad `document.images` extrac
    Status Detection below)
 4. Phase Eight
 5. Collard Manson
-6. Lab Store World, Allotment Store, Il Duomo, Ted Baker
+6. Lab Store World, Allotment Store, Il Duomo, Ted Baker, Sister Jane
 7. Self-Portrait
 8. Harvey Nichols
 9. Vivienne Westwood or Hobbs London
@@ -744,6 +744,52 @@ above).
 
 Verified 2026-10-17 against `viviin-black` (full price, one size) and
 `diaby-pl-blue` (on sale, multiple sizes, one size out of stock).
+
+## Sister Jane
+
+File: `src/shops/sisterJane.js`
+
+URL match:
+
+- `sisterjane.com`, `www.sisterjane.com` (including
+  `/collections/{collection}/products/{handle}` URLs)
+
+Shopify store. Product data comes from `/products/{handle}.js?country=GB&currency=GBP`,
+fetched inside the page session:
+
+- Price/currency: product JSON `price`, GBP. No DOM/JSON-LD fallback; a missing
+  JSON leaves the price empty (`要確認：価格取得失敗`).
+- Sale: `compare_at_price` greater than `price`.
+- Brand: fixed `SISTER JANE`. The Shopify `vendor` is the collection line shown
+  above the product name (e.g. `The Art Of Living`) and must not reach the
+  title; it is kept in `rawBlocks.line`.
+- Color: the variants' `Color` option, when all variants agree.
+- Sizes/availability: the `Size` option per variant, limited to the sizes the
+  page shows as `input[name="Size"]` radios. The JSON also has a hidden `Z`
+  placeholder variant that is never offered.
+- Product code: the style code shared by every variant SKU
+  (`DR2626IVO-XS` → `DR2626IVO`).
+- "Details & Fit" collapsible (`.product-single__custom-field-title` /
+  `-text` pairs):
+  - `Product Details` → `features`. Length sentences such as "83-88 cm
+    depending on the size" stay here, not in `dimensions`, so the
+    `販売サイズ：` line is still produced.
+  - `Size & Fit` → `modelInfo`, only when the product has more than one size.
+    The theme prints the same model sentence on one-size products (bags).
+  - `Composition` → `composition`/`material`.
+  - `Care Guide` → `careInstructions`.
+- Category: product JSON `type` (`Dresses`, `Accessories`, ...).
+- Images: only the product JSON `images` array, excluding the trailing
+  `..._LowRes.jpg` line-sheet image that carries the price in its file name.
+  The generic path took three 1200x630 og crops (with http/https duplicates)
+  instead of the full gallery.
+- Country of origin: not provided.
+
+Shipping: `SISTER JANE` in `SHOP_SHIPPING_RULES` (GBP 5 below GBP 60, free at or
+above).
+
+Verified 2026-11-07 against `cyndi-spot-jacquard-mini-dress` (sold out, preorder,
+multiple sizes) and `cyndi-spot-jacquard-bag` (one size, in stock).
 
 ## Selfridges
 

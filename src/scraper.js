@@ -84,6 +84,12 @@ const {
   extractTedBakerImages,
   TED_BAKER_IMAGE_FAILURE_STATUS
 } = require('./shops/tedBaker');
+const {
+  isSisterJaneUrl,
+  extractSisterJaneProductDetails,
+  extractSisterJaneImages,
+  SISTER_JANE_IMAGE_FAILURE_STATUS
+} = require('./shops/sisterJane');
 
 const GENERIC_ACCESS_FAILURE_STATUS = '要確認：A列の商品情報取得に失敗しました';
 // Exact status codes treated as a block. 5xx is handled separately as a
@@ -221,6 +227,16 @@ async function scrapeProductPage(page, url) {
     return {
       ...shopProductDetails,
       status: shopImageSources.length > 0 ? '' : TED_BAKER_IMAGE_FAILURE_STATUS,
+      imageUrls: shopImageSources.map((image) => image.url),
+      imageSources: shopImageSources
+    };
+  }
+  if (isSisterJaneUrl(url)) {
+    const shopProductDetails = await extractSisterJaneProductDetails(page, url);
+    const shopImageSources = await extractSisterJaneImages(page);
+    return {
+      ...shopProductDetails,
+      status: shopImageSources.length > 0 ? '' : SISTER_JANE_IMAGE_FAILURE_STATUS,
       imageUrls: shopImageSources.map((image) => image.url),
       imageSources: shopImageSources
     };
@@ -713,6 +729,7 @@ async function scrapeImagesFromUrl(page, url) {
     if (isAllotmentStoreUrl(url)) return await extractAllotmentStoreImages(page);
     if (isIlDuomoUrl(url)) return await extractIlDuomoImages(page);
     if (isTedBakerUrl(url)) return await extractTedBakerImages(page);
+    if (isSisterJaneUrl(url)) return await extractSisterJaneImages(page);
 
     return await extractGenericImages(page);
   } catch (_) {

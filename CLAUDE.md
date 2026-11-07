@@ -221,6 +221,7 @@ Current shop files are in `src/shops/`:
 - `hobbsLondon.js`
 - `ilDuomo.js`
 - `tedBaker.js`
+- `sisterJane.js`
 - `zalando.js`
 - `harveyNichols.js`
 - `selfPortrait.js`

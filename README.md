@@ -71,6 +71,7 @@ pnpm install --frozen-lockfile
 │       ├── selfPortrait.js
 │       ├── selfridges.js
 │       ├── tedBaker.js
+│       ├── sisterJane.js
 │       ├── tessabit.js
 │       ├── vivienneWestwood.js
 │       └── zalando.js
@@ -269,6 +270,7 @@ BUYMA手数料は `BUYMA_FEE_RATE` に加えて、出品価格帯ごとの定額
 | `src/shops/collardManson.js` | Collard Manson（Shopify。商品JSON優先、GBP建て） |
 | `src/shops/labStoreWorld.js` | Lab Store World（`labstoreworld.com`。Shopify。商品JSON優先、GBP建て） |
 | `src/shops/tedBaker.js` | Ted Baker（`tedbaker.com`。Shopify。商品JSONを`country=GB&currency=GBP`指定で取得、GBP建て。素材は「Fabric & Care」欄） |
+| `src/shops/sisterJane.js` | Sister Jane（`sisterjane.com`。Shopify。商品JSONを`country=GB&currency=GBP`指定で取得、GBP建て。詳細・モデル・素材・お手入れは「Details & Fit」欄） |
 | `src/shops/tessabit.js` | Tessabit（N列の画像取得元URLとしてのみ使用。画像抽出のみ専用対応、商品情報は汎用フォールバック） |
 
 汎用フォールバックは商品テキスト情報をJSON-LD、OGP、meta description、一般的な商品情報ラベルの順に参照します。**専用スクレイパーを持つショップで汎用フォールバックに頼らないでください。**
