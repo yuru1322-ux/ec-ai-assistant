@@ -353,6 +353,13 @@ other product. The exemption only skips the stop; it does not set a duty rate
 both `labstoreworld.com` and `labstorelondon.com`); every other shop keeps the
 check.
 
+The check looks for a shoe word and a leather word anywhere in the category,
+URL, name, description and material. When the shop's own category resolves to a
+category other than `バッグ・靴` (e.g. `Trousers` → `アパレル`), the check is
+skipped: styling copy such as Sister Jane's jeans description ("a crisp blouse,
+sneakers and a leather jacket") otherwise stopped the row. With a `バッグ・靴`
+category, or no shop category, the check runs as before.
+
 ## Category Resolution
 
 `resolveShippingCategory()` prioritizes:

@@ -1,5 +1,6 @@
 const fs = require('fs/promises');
 const path = require('path');
+const { execFile } = require('child_process');
 const config = require('./config');
 const { ensureDir, sanitizeFilePart, toRelativePath } = require('./utils');
 const { getImageMetadata } = require('./imageMetadata');
@@ -137,13 +138,28 @@ function getProductImageDir(rowNumber) {
   return path.join(config.imagesDir, folderName);
 }
 
+// A row folder that already exists belongs to whatever product the row held
+// before (rows are reused for new products), so every file in it is removed,
+// not only the generated `01_main` / `NN_sub` / `size_guide` names: earlier
+// products' downloads and hand-made images must not mix with the new set.
+// The folder's Finder tags (the operator marks finished rows grey) belong to
+// the earlier product too, so they are removed as well.
 async function clearGeneratedImages(outputDir) {
   const entries = await fs.readdir(outputDir, { withFileTypes: true }).catch(() => []);
-  const generatedImagePattern = /^(?:01_main|\d+_sub|size_guide)\.[^.]+$/;
 
   await Promise.all(entries
-    .filter((entry) => entry.isFile() && generatedImagePattern.test(entry.name))
+    .filter((entry) => entry.isFile())
     .map((entry) => fs.unlink(path.join(outputDir, entry.name))));
+  await clearFinderTags(outputDir);
+}
+
+// macOS only. `xattr -d` fails when the folder has no tags or `xattr` is
+// missing; either way there is nothing to clear, so the error is ignored.
+function clearFinderTags(dir) {
+  if (process.platform !== 'darwin') return Promise.resolve();
+  return new Promise((resolve) => {
+    execFile('xattr', ['-d', 'com.apple.metadata:_kMDItemUserTags', dir], () => resolve());
+  });
 }
 
 async function fetchImageWithFallback(page, image) {

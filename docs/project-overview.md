@@ -56,7 +56,7 @@ images/
     size_guide.jpg
 ```
 
-Before saving images for a row, generated files matching `01_main.*`, `数字_sub.*`, and `size_guide.*` are deleted from that row folder. Other manually added files are preserved.
+Before saving images for a row, every file already in that row folder (`images/{row}/`) is deleted, whatever its name. Rows are reused for new products, so an earlier product's downloads and hand-made images must not mix with the new set. Do not keep files you want to preserve in a row folder that will be processed again. On macOS the folder's Finder tags (e.g. the grey "done" tag) are removed at the same time.
 
 Column G stores image file names only, sorted by file name. It does not store URLs, folders, or full paths.
 

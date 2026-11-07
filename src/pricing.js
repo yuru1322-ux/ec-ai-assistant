@@ -615,7 +615,17 @@ function resolveShippingCategory({ category, productData = {}, sourceUrl = '' })
   const explicitIsBagOrWalletMix = explicitMatch
     && matchedCategoryKeyword(explicitText, CATEGORY_PATTERNS.革小物)
     && matchedCategoryKeyword(explicitText, CATEGORY_PATTERNS['バッグ・靴']);
-  if (explicitMatch && !explicitIsBagOrWalletMix) return { ...explicitMatch, possibleLeatherShoes, warnings: [] };
+  // The leather-shoe check scans the description too, so styling copy such as
+  // "a crisp blouse, sneakers and a leather jacket" (Sister Jane jeans) trips
+  // it. When the shop's own category places the product outside バッグ・靴
+  // (e.g. `Trousers`), it is not a shoe and the check does not apply.
+  if (explicitMatch && !explicitIsBagOrWalletMix) {
+    return {
+      ...explicitMatch,
+      possibleLeatherShoes: explicitMatch.category === 'バッグ・靴' ? possibleLeatherShoes : false,
+      warnings: []
+    };
+  }
 
   const urlMatch = firstCategoryMatch(urlText, [
     '革小物',
